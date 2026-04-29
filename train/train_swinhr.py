@@ -3,14 +3,19 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import os
+import sys
 import numpy as np
 import cv2
+from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from torch.amp import autocast, GradScaler
+from torch.cuda.amp import autocast, GradScaler
 import argparse
-from swinhr_v6 import SwinHR
-import torch.nn.functional as F
+from importlib import import_module
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 # ==========================================
 # 1. Dataset (逻辑保持不变)
@@ -62,7 +67,9 @@ class BreastDM9ChDataset(Dataset):
 # 2. 模型：标准 U-Net 但改为 9 通道输入
 # ==========================================
 
-def get_model():
+def get_model(model_name):
+    module = import_module(f"model.{model_name}")
+    SwinHR = getattr(module, "SwinHR")
     model = SwinHR(
         # img_size=(256, 256), 
         in_channels=1,        
@@ -84,8 +91,8 @@ def evaluate(model, loader, device, desc="Validation"):
     with torch.no_grad():
         for img, mask, _ in tqdm(loader, desc=desc, leave=False):
             img, mask = img.to(device), mask.to(device)
-            with autocast('cuda'):
-                preds, _, _ = model(img)
+            with autocast():
+                preds = model(img)
             
             # 预测二值化
             preds = (torch.sigmoid(preds) > 0.5).float()
@@ -115,6 +122,8 @@ def main():
     parser.add_argument('--test_path', type=str, default='./processed_9ch_vibrant_label/test')
     
     parser.add_argument('--output_path', type=str, default='./results_unet_9ch')
+    parser.add_argument('--model_name', type=str, default='swinhr_v9',
+                        help='SwinHR model file under model/, e.g. swinhr_v7, swinhr_v8, swinhr_v9.')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-3)
@@ -143,11 +152,11 @@ def main():
 
     # --- 初始化模型 ---
     print("Initializing 9-Channel U-Net (ResNet34 Backbone)...")
-    model = get_model().to(device)
+    model = get_model(args.model_name).to(device)
     
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_fn = smp.losses.DiceLoss(mode='binary', from_logits=True)
-    scaler = GradScaler('cuda')
+    scaler = GradScaler()
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     
     best_dice = 0.0
@@ -157,50 +166,23 @@ def main():
     for epoch in range(1, args.epochs + 1):
         model.train()
         train_loss = 0
-        alpha = 0.1 
         
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs}")
         for img, mask, _ in pbar:
             img, mask = img.to(device), mask.to(device)
-            optimizer.zero_grad()
             
-            with autocast('cuda'):
-                # 1. 接收三个返回值
-                preds, feat_anatomy, feat_hemo = model(img)
-                
-                # 2. 计算标准的分割 Dice Loss
-                seg_loss = loss_fn(preds, mask)
-                
-                # ==========================================
-                # 【新增创新点】：跨模态正交约束损失
-                # 强迫 feat_anatomy 和 feat_hemo 学到互不重叠的信息
-                # ==========================================
-                # 展平空间维度 (B, C, H, W) -> (B, C, H*W)
-                b, c, h, w = feat_anatomy.shape
-                f_a = feat_anatomy.view(b, c, -1)
-                f_h = feat_hemo.view(b, c, -1)
-                
-                # 对通道进行 L2 归一化 (非常重要，防止尺度不同)
-                f_a = F.normalize(f_a, p=2, dim=1)
-                f_h = F.normalize(f_h, p=2, dim=1)
-                
-                # 计算余弦相似度矩阵 (内积)，越接近 0 说明越正交
-                # f_a: (B, C, N), f_h.transpose: (B, N, C) -> sim: (B, C, C)
-                sim_matrix = torch.bmm(f_a, f_h.transpose(1, 2))
-                
-                # 正交损失 = 相似度矩阵的 F-范数 (越小越好)
-                ortho_loss = torch.norm(sim_matrix, p='fro') / (c * c)
-                
-                # 3. 组合最终的总 Loss
-                loss = seg_loss + alpha * ortho_loss
-                # ==========================================
+            optimizer.zero_grad()
+            with autocast():
+                preds = model(img)
+                loss = loss_fn(preds, mask)
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            train_loss += loss.item()
-            pbar.set_postfix({'Seg': f"{seg_loss.item():.4f}", 'Ortho': f"{ortho_loss.item():.4f}"})
             
+            train_loss += loss.item()
+            pbar.set_postfix({'loss': loss.item()})
+        
         scheduler.step()
         
         # --- 验证 ---

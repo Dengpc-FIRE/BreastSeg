@@ -1,0 +1,10 @@
+# 每行写一条训练命令。空行和 # 开头的行会被自动跳过。
+# 队列脚本会等待上一条命令结束后再执行下一条；上一条报错也会继续执行后续命令。
+#
+# 在项目根目录运行：
+# py train/run_train_queue.py --commands train/commands.txt
+#
+# 示例：
+# py train/train_swinhr.py --model_name swinhr_v7 > log/swinhr_v7.txt 2>&1
+# py train/train_swinhr.py --model_name swinhr_v8 > log/swinhr_v8.txt 2>&1
+# py train/train_swinhr.py --model_name swinhr_v9 > log/swinhr_v9.txt 2>&1

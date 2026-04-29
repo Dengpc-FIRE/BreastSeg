@@ -1,30 +1,38 @@
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import os
+import sys
 import numpy as np
 import cv2
+from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from torch.amp import autocast, GradScaler # 使用最新的 AMP 接口
+from torch.amp import autocast, GradScaler
 import argparse
-from swinhr_v7 import SwinHR # 确保你的模型文件名正确
+import torch.nn.functional as F
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from model.swinhr_v6 import SwinHR
 
 # ==========================================
-# 1. Dataset (针对 9 通道数据的加载逻辑)
+# 1. Dataset (逻辑保持不变)
 # ==========================================
 class BreastDM9ChDataset(Dataset):
     def __init__(self, data_dir, gt_dir, img_size=256):
         self.data_dir = data_dir
         self.gt_dir = gt_dir
         self.img_size = img_size
+        # 只有当目录存在时才读取文件列表，防止报错
         if os.path.exists(data_dir):
             self.ids = [f for f in os.listdir(data_dir) if f.endswith('.npy')]
         else:
             self.ids = []
-            print(f"[Warning] 路径未找到: {data_dir}")
+            print(f"[Warning] Directory not found: {data_dir}")
 
     def __len__(self):
         return len(self.ids)
@@ -34,9 +42,9 @@ class BreastDM9ChDataset(Dataset):
         data_path = os.path.join(self.data_dir, file_name)
         data = np.load(data_path) 
         
-        # 归一化并转置为 [C, H, W]
+        # 你的 NPY 是 (256, 256, 9) -> 转置为 (9, 256, 256) 给 PyTorch
         image = data.astype(np.float32) / 255.0
-        image = torch.from_numpy(image.transpose(2, 0, 1))
+        image = torch.from_numpy(image.transpose(2, 0, 1)) # [9, H, W]
 
         mask_name = file_name.replace('.npy', '.png')
         gt_path = os.path.join(self.gt_dir, mask_name)
@@ -58,37 +66,43 @@ class BreastDM9ChDataset(Dataset):
         return image, mask_tensor, file_name
 
 # ==========================================
-# 2. 模型初始化
+# 2. 模型：标准 U-Net 但改为 9 通道输入
 # ==========================================
+
 def get_model():
     model = SwinHR(
-        in_channels=1,        # VIBRANT 解剖流
-        attn_channels=8,      # SUB 1-8 血流流
+        # img_size=(256, 256), 
+        in_channels=1,        
+        attn_channels=8,      
         out_channels=1,       
         spatial_dims=2        
     )
     return model
 
 # ==========================================
-# 3. 评估/测试函数 (关键：需处理双输出)
+# 3. 评估/测试通用函数
 # ==========================================
 def evaluate(model, loader, device, desc="Validation"):
     model.eval()
     dice_scores = []
+    # 也可以加 IoU
     iou_scores = []
     
     with torch.no_grad():
         for img, mask, _ in tqdm(loader, desc=desc, leave=False):
             img, mask = img.to(device), mask.to(device)
             with autocast('cuda'):
-                # 评估时只取第一个主输出，忽略血流分支预测
-                preds_main, _ = model(img)
+                preds, _, _ = model(img)
             
-            preds = (torch.sigmoid(preds_main) > 0.5).float()
+            # 预测二值化
+            preds = (torch.sigmoid(preds) > 0.5).float()
             
             # 计算指标
             tp, fp, fn, tn = smp.metrics.get_stats(preds.long(), mask.long(), mode='binary')
+            
+            # Dice (F1)
             dice = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro-imagewise")
+            # IoU
             iou = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro-imagewise")
             
             dice_scores.append(dice.item())
@@ -101,30 +115,43 @@ def evaluate(model, loader, device, desc="Validation"):
 # ==========================================
 def main():
     parser = argparse.ArgumentParser()
+    # 【修改点 1】默认路径改为新的 'processed_9ch_vibrant_label'
     parser.add_argument('--train_path', type=str, default='./processed_9ch_vibrant_label/train')
     parser.add_argument('--val_path', type=str, default='./processed_9ch_vibrant_label/val')
+    # 【修改点 2】新增测试集路径参数
     parser.add_argument('--test_path', type=str, default='./processed_9ch_vibrant_label/test')
-    parser.add_argument('--output_path', type=str, default='./results_swinhr_aux')
+    
+    parser.add_argument('--output_path', type=str, default='./results_unet_9ch')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--num_workers', type=int, default=4)
+    parser.add_argument('--num_workers', type=int, default=4) # Windows下如果不稳定可以改为0
     args = parser.parse_args()
 
     os.makedirs(args.output_path, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # 数据加载
+    # --- 准备数据 ---
+    print("Loading Datasets...")
     train_ds = BreastDM9ChDataset(os.path.join(args.train_path, 'data'), os.path.join(args.train_path, 'GT'))
     val_ds = BreastDM9ChDataset(os.path.join(args.val_path, 'data'), os.path.join(args.val_path, 'GT'))
     test_ds = BreastDM9ChDataset(os.path.join(args.test_path, 'data'), os.path.join(args.test_path, 'GT'))
     
+    if len(train_ds) == 0:
+        print("Error: No training data found. Check your paths.")
+        return
+
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=4, shuffle=False, num_workers=args.num_workers, pin_memory=True)
+    # 【修改点 3】定义测试 Loader
     test_loader = DataLoader(test_ds, batch_size=4, shuffle=False, num_workers=args.num_workers, pin_memory=True)
 
-    # 初始化
+    print(f"Train Size: {len(train_ds)}, Val Size: {len(val_ds)}, Test Size: {len(test_ds)}")
+
+    # --- 初始化模型 ---
+    print("Initializing 9-Channel U-Net (ResNet34 Backbone)...")
     model = get_model().to(device)
+    
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_fn = smp.losses.DiceLoss(mode='binary', from_logits=True)
     scaler = GradScaler('cuda')
@@ -132,12 +159,12 @@ def main():
     
     best_dice = 0.0
 
-    print(f"训练开始: {len(train_ds)} 样本, 目标 SOTA: 83.2%")
-    
+    # --- 训练循环 ---
+    print("Start Training...")
     for epoch in range(1, args.epochs + 1):
         model.train()
-        epoch_loss = 0
-        aux_weight = 0.4 # 辅助损失权重，建议在 0.3-0.5 之间
+        train_loss = 0
+        alpha = 0.1 
         
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs}")
         for img, mask, _ in pbar:
@@ -145,44 +172,75 @@ def main():
             optimizer.zero_grad()
             
             with autocast('cuda'):
-                # 1. 接收主输出和辅助输出
-                preds_main, preds_aux = model(img)
+                # 1. 接收三个返回值
+                preds, feat_anatomy, feat_hemo = model(img)
                 
-                # 2. 计算双重损失
-                loss_main = loss_fn(preds_main, mask)
-                loss_aux = loss_fn(preds_aux, mask)
+                # 2. 计算标准的分割 Dice Loss
+                seg_loss = loss_fn(preds, mask)
                 
-                # 3. 联合优化：引导血流分支学会有物理意义的特征
-                loss = loss_main + aux_weight * loss_aux
+                # ==========================================
+                # 【新增创新点】：跨模态正交约束损失
+                # 强迫 feat_anatomy 和 feat_hemo 学到互不重叠的信息
+                # ==========================================
+                # 展平空间维度 (B, C, H, W) -> (B, C, H*W)
+                b, c, h, w = feat_anatomy.shape
+                f_a = feat_anatomy.view(b, c, -1)
+                f_h = feat_hemo.view(b, c, -1)
+                
+                # 对通道进行 L2 归一化 (非常重要，防止尺度不同)
+                f_a = F.normalize(f_a, p=2, dim=1)
+                f_h = F.normalize(f_h, p=2, dim=1)
+                
+                # 计算余弦相似度矩阵 (内积)，越接近 0 说明越正交
+                # f_a: (B, C, N), f_h.transpose: (B, N, C) -> sim: (B, C, C)
+                sim_matrix = torch.bmm(f_a, f_h.transpose(1, 2))
+                
+                # 正交损失 = 相似度矩阵的 F-范数 (越小越好)
+                ortho_loss = torch.norm(sim_matrix, p='fro') / (c * c)
+                
+                # 3. 组合最终的总 Loss
+                loss = seg_loss + alpha * ortho_loss
+                # ==========================================
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
+            train_loss += loss.item()
+            pbar.set_postfix({'Seg': f"{seg_loss.item():.4f}", 'Ortho': f"{ortho_loss.item():.4f}"})
             
-            epoch_loss += loss.item()
-            pbar.set_postfix({'Main': f"{loss_main.item():.4f}", 'Aux': f"{loss_aux.item():.4f}"})
-        
         scheduler.step()
         
-        # 验证
+        # --- 验证 ---
         val_dice, val_iou = evaluate(model, val_loader, device, desc="Validating")
-        print(f"Epoch {epoch} | Loss: {epoch_loss/len(train_loader):.4f} | Val Dice: {val_dice:.4f} | Val IoU: {val_iou:.4f}")
+        print(f"Epoch {epoch} | Train Loss: {train_loss/len(train_loader):.4f} | Val Dice: {val_dice:.4f} | Val IoU: {val_iou:.4f}")
         
         if val_dice > best_dice:
             best_dice = val_dice
             torch.save(model.state_dict(), os.path.join(args.output_path, 'best_model.pth'))
-            print(f">>> 💾 发现更优模型! (Dice: {best_dice:.4f})")
+            print(f">>> 💾 Best Model Saved! (Dice: {best_dice:.4f})")
 
-    # 最终测试
-    print("\n训练结束，加载最佳权重进行测试...")
+    # ==========================================
+    # 【修改点 4】训练结束后，加载最佳模型进行测试
+    # ==========================================
+    print("\n=======================================")
+    print("Training Finished. Starting Testing...")
+    print("=======================================")
+    
     best_model_path = os.path.join(args.output_path, 'best_model.pth')
     if os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path))
-        test_dice, test_iou = evaluate(model, test_loader, device, desc="Final Testing")
-        print(f"\n>>>> 最终测试结果 <<<<")
-        print(f"Test Dice: {test_dice:.4f}")
-        print(f"Test IoU:  {test_iou:.4f}")
-        print("==========================")
+        print(f"Loaded Best Model from {best_model_path}")
+        
+        test_dice, test_iou = evaluate(model, test_loader, device, desc="Testing")
+        
+        print(f"\n>>>> FINAL TEST RESULTS <<<<")
+        print(f"Test Set Size: {len(test_ds)}")
+        print(f"Test Dice Score: {test_dice:.4f}")
+        print(f"Test IoU Score:  {test_iou:.4f}")
+        print("=======================================")
+    else:
+        print("Error: Best model file not found!")
 
 if __name__ == '__main__':
     main()
+

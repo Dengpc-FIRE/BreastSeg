@@ -1,30 +1,36 @@
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import os
+import sys
 import numpy as np
 import cv2
+from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler # 浣跨敤鏈€鏂扮殑 AMP 鎺ュ彛
 import argparse
-from swinhr_v9 import SwinHR
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from model.swinhr_v7 import SwinHR
 
 # ==========================================
-# 1. Dataset (逻辑保持不变)
+# 1. Dataset (閽堝 9 閫氶亾鏁版嵁鐨勫姞杞介€昏緫)
 # ==========================================
 class BreastDM9ChDataset(Dataset):
     def __init__(self, data_dir, gt_dir, img_size=256):
         self.data_dir = data_dir
         self.gt_dir = gt_dir
         self.img_size = img_size
-        # 只有当目录存在时才读取文件列表，防止报错
         if os.path.exists(data_dir):
             self.ids = [f for f in os.listdir(data_dir) if f.endswith('.npy')]
         else:
             self.ids = []
-            print(f"[Warning] Directory not found: {data_dir}")
+            print(f"[Warning] 璺緞鏈壘鍒? {data_dir}")
 
     def __len__(self):
         return len(self.ids)
@@ -34,9 +40,9 @@ class BreastDM9ChDataset(Dataset):
         data_path = os.path.join(self.data_dir, file_name)
         data = np.load(data_path) 
         
-        # 你的 NPY 是 (256, 256, 9) -> 转置为 (9, 256, 256) 给 PyTorch
+        # 褰掍竴鍖栧苟杞疆涓?[C, H, W]
         image = data.astype(np.float32) / 255.0
-        image = torch.from_numpy(image.transpose(2, 0, 1)) # [9, H, W]
+        image = torch.from_numpy(image.transpose(2, 0, 1))
 
         mask_name = file_name.replace('.npy', '.png')
         gt_path = os.path.join(self.gt_dir, mask_name)
@@ -58,43 +64,37 @@ class BreastDM9ChDataset(Dataset):
         return image, mask_tensor, file_name
 
 # ==========================================
-# 2. 模型：标准 U-Net 但改为 9 通道输入
+# 2. 妯″瀷鍒濆鍖?
 # ==========================================
-
 def get_model():
     model = SwinHR(
-        # img_size=(256, 256), 
-        in_channels=1,        
-        attn_channels=8,      
+        in_channels=1,        # VIBRANT 瑙ｅ墫娴?
+        attn_channels=8,      # SUB 1-8 琛€娴佹祦
         out_channels=1,       
         spatial_dims=2        
     )
     return model
 
 # ==========================================
-# 3. 评估/测试通用函数
+# 3. 璇勪及/娴嬭瘯鍑芥暟 (鍏抽敭锛氶渶澶勭悊鍙岃緭鍑?
 # ==========================================
 def evaluate(model, loader, device, desc="Validation"):
     model.eval()
     dice_scores = []
-    # 也可以加 IoU
     iou_scores = []
     
     with torch.no_grad():
         for img, mask, _ in tqdm(loader, desc=desc, leave=False):
             img, mask = img.to(device), mask.to(device)
-            with autocast():
-                preds = model(img)
+            with autocast('cuda'):
+                # 璇勪及鏃跺彧鍙栫涓€涓富杈撳嚭锛屽拷鐣ヨ娴佸垎鏀娴?
+                preds_main, _ = model(img)
             
-            # 预测二值化
-            preds = (torch.sigmoid(preds) > 0.5).float()
+            preds = (torch.sigmoid(preds_main) > 0.5).float()
             
-            # 计算指标
+            # 璁＄畻鎸囨爣
             tp, fp, fn, tn = smp.metrics.get_stats(preds.long(), mask.long(), mode='binary')
-            
-            # Dice (F1)
             dice = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro-imagewise")
-            # IoU
             iou = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro-imagewise")
             
             dice_scores.append(dice.item())
@@ -103,109 +103,92 @@ def evaluate(model, loader, device, desc="Validation"):
     return np.mean(dice_scores), np.mean(iou_scores)
 
 # ==========================================
-# 4. 训练主流程
+# 4. 璁粌涓绘祦绋?
 # ==========================================
 def main():
     parser = argparse.ArgumentParser()
-    # 【修改点 1】默认路径改为新的 'processed_9ch_vibrant_label'
     parser.add_argument('--train_path', type=str, default='./processed_9ch_vibrant_label/train')
     parser.add_argument('--val_path', type=str, default='./processed_9ch_vibrant_label/val')
-    # 【修改点 2】新增测试集路径参数
     parser.add_argument('--test_path', type=str, default='./processed_9ch_vibrant_label/test')
-    
-    parser.add_argument('--output_path', type=str, default='./results_unet_9ch')
+    parser.add_argument('--output_path', type=str, default='./results_swinhr_aux')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--num_workers', type=int, default=4) # Windows下如果不稳定可以改为0
+    parser.add_argument('--num_workers', type=int, default=4)
     args = parser.parse_args()
 
     os.makedirs(args.output_path, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # --- 准备数据 ---
-    print("Loading Datasets...")
+    # 鏁版嵁鍔犺浇
     train_ds = BreastDM9ChDataset(os.path.join(args.train_path, 'data'), os.path.join(args.train_path, 'GT'))
     val_ds = BreastDM9ChDataset(os.path.join(args.val_path, 'data'), os.path.join(args.val_path, 'GT'))
     test_ds = BreastDM9ChDataset(os.path.join(args.test_path, 'data'), os.path.join(args.test_path, 'GT'))
     
-    if len(train_ds) == 0:
-        print("Error: No training data found. Check your paths.")
-        return
-
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=4, shuffle=False, num_workers=args.num_workers, pin_memory=True)
-    # 【修改点 3】定义测试 Loader
     test_loader = DataLoader(test_ds, batch_size=4, shuffle=False, num_workers=args.num_workers, pin_memory=True)
 
-    print(f"Train Size: {len(train_ds)}, Val Size: {len(val_ds)}, Test Size: {len(test_ds)}")
-
-    # --- 初始化模型 ---
-    print("Initializing 9-Channel U-Net (ResNet34 Backbone)...")
+    # 鍒濆鍖?
     model = get_model().to(device)
-    
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_fn = smp.losses.DiceLoss(mode='binary', from_logits=True)
-    scaler = GradScaler()
+    scaler = GradScaler('cuda')
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     
     best_dice = 0.0
 
-    # --- 训练循环 ---
-    print("Start Training...")
+    print(f"璁粌寮€濮? {len(train_ds)} 鏍锋湰, 鐩爣 SOTA: 83.2%")
+    
     for epoch in range(1, args.epochs + 1):
         model.train()
-        train_loss = 0
+        epoch_loss = 0
+        aux_weight = 0.4 # 杈呭姪鎹熷け鏉冮噸锛屽缓璁湪 0.3-0.5 涔嬮棿
         
         pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs}")
         for img, mask, _ in pbar:
             img, mask = img.to(device), mask.to(device)
-            
             optimizer.zero_grad()
-            with autocast():
-                preds = model(img)
-                loss = loss_fn(preds, mask)
+            
+            with autocast('cuda'):
+                # 1. 鎺ユ敹涓昏緭鍑哄拰杈呭姪杈撳嚭
+                preds_main, preds_aux = model(img)
+                
+                # 2. 璁＄畻鍙岄噸鎹熷け
+                loss_main = loss_fn(preds_main, mask)
+                loss_aux = loss_fn(preds_aux, mask)
+                
+                # 3. 鑱斿悎浼樺寲锛氬紩瀵艰娴佸垎鏀浼氭湁鐗╃悊鎰忎箟鐨勭壒寰?
+                loss = loss_main + aux_weight * loss_aux
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
             
-            train_loss += loss.item()
-            pbar.set_postfix({'loss': loss.item()})
+            epoch_loss += loss.item()
+            pbar.set_postfix({'Main': f"{loss_main.item():.4f}", 'Aux': f"{loss_aux.item():.4f}"})
         
         scheduler.step()
         
-        # --- 验证 ---
+        # 楠岃瘉
         val_dice, val_iou = evaluate(model, val_loader, device, desc="Validating")
-        print(f"Epoch {epoch} | Train Loss: {train_loss/len(train_loader):.4f} | Val Dice: {val_dice:.4f} | Val IoU: {val_iou:.4f}")
+        print(f"Epoch {epoch} | Loss: {epoch_loss/len(train_loader):.4f} | Val Dice: {val_dice:.4f} | Val IoU: {val_iou:.4f}")
         
         if val_dice > best_dice:
             best_dice = val_dice
             torch.save(model.state_dict(), os.path.join(args.output_path, 'best_model.pth'))
-            print(f">>> 💾 Best Model Saved! (Dice: {best_dice:.4f})")
+            print(f">>> 馃捑 鍙戠幇鏇翠紭妯″瀷! (Dice: {best_dice:.4f})")
 
-    # ==========================================
-    # 【修改点 4】训练结束后，加载最佳模型进行测试
-    # ==========================================
-    print("\n=======================================")
-    print("Training Finished. Starting Testing...")
-    print("=======================================")
-    
+    # 鏈€缁堟祴璇?
+    print("\n璁粌缁撴潫锛屽姞杞芥渶浣虫潈閲嶈繘琛屾祴璇?..")
     best_model_path = os.path.join(args.output_path, 'best_model.pth')
     if os.path.exists(best_model_path):
         model.load_state_dict(torch.load(best_model_path))
-        print(f"Loaded Best Model from {best_model_path}")
-        
-        test_dice, test_iou = evaluate(model, test_loader, device, desc="Testing")
-        
-        print(f"\n>>>> FINAL TEST RESULTS <<<<")
-        print(f"Test Set Size: {len(test_ds)}")
-        print(f"Test Dice Score: {test_dice:.4f}")
-        print(f"Test IoU Score:  {test_iou:.4f}")
-        print("=======================================")
-    else:
-        print("Error: Best model file not found!")
+        test_dice, test_iou = evaluate(model, test_loader, device, desc="Final Testing")
+        print(f"\n>>>> 鏈€缁堟祴璇曠粨鏋?<<<<")
+        print(f"Test Dice: {test_dice:.4f}")
+        print(f"Test IoU:  {test_iou:.4f}")
+        print("==========================")
 
 if __name__ == '__main__':
     main()
-
