@@ -1,0 +1,41 @@
+# Python缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter笔记本检查点
+.ipynb_checkpoints/
+
+# 数据集和中间文件
+cropped_dataset/
+input_images/
+final_evaluation_results/
+processed_9ch_sub2label/
+processed_9ch_vibrant_label/
+
+# 模型权重文件（大文件）
+*.pth
+*.pt
+*.h5
+*.ckpt
+
+# 训练结果目录
+results_*/
+各种model/
+各种out/
+各种result/
+各种train/
+
+# 其他临时文件
+*.tmp
+*.temp
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db

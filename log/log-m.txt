@@ -1,0 +1,7 @@
+
+model: bs8  ep50  ValDice=0.6062
+
+
+train_model2
+- python train_model2.py --train_path ./processed_9ch_sub2label/train --val_path ./processed_9ch_sub2label/val --epochs 30 --batch_size 16 --aux --aux_weight 0.4
+- ValDice=0.3477
