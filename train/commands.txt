@@ -1,10 +1,22 @@
 # 每行写一条训练命令。空行和 # 开头的行会被自动跳过。
-# 队列脚本会等待上一条命令结束后再执行下一条；上一条报错也会继续执行后续命令。
-#
-# 在项目根目录运行：
-# py train/run_train_queue.py --commands train/commands.txt
-#
-# 示例：
-# py train/train_swinhr.py --model_name swinhr_v7 > log/swinhr_v7.txt 2>&1
-# py train/train_swinhr.py --model_name swinhr_v8 > log/swinhr_v8.txt 2>&1
-# py train/train_swinhr.py --model_name swinhr_v9 > log/swinhr_v9.txt 2>&1
+# AutoDL/Linux 请使用 python 或 python3，不要使用 Windows 的 py。
+# 运行队列：
+# python train/run_train_queue.py --commands train/commands.txt
+
+# Baseline: 之前的剪影引导模型
+python train/train_swinhr.py --model_name swinhr_silhouette --output_path results_swinhr_silhouette > log/swinhr_silhouette.txt 2>&1
+
+# Ablation A: PIB，仅加入剪影先验注入模块
+python train/train_swinhr.py --model_name swinhr_sil_pib --output_path results_swinhr_sil_pib > log/swinhr_sil_pib.txt 2>&1
+
+# Ablation B: Stem + PIB，替换输入 stem 为多尺度局部上下文 stem
+python train/train_swinhr.py --model_name swinhr_sil_stem --output_path results_swinhr_sil_stem > log/swinhr_sil_stem.txt 2>&1
+
+# Ablation C: Temporal + PIB，对 1-8 分钟剪影序列做时序建模
+python train/train_swinhr.py --model_name swinhr_sil_temporal --output_path results_swinhr_sil_temporal > log/swinhr_sil_temporal.txt 2>&1
+
+# Ablation D: Decoder + PIB，将解码器换成 dense skip decoder
+python train/train_swinhr.py --model_name swinhr_sil_decoder --output_path results_swinhr_sil_decoder > log/swinhr_sil_decoder.txt 2>&1
+
+# Full: Stem + Temporal + RLK Fusion + Dense Decoder + Edge-aware Head
+python train/train_swinhr.py --model_name swinhr_sil_combo --output_path results_swinhr_sil_combo > log/swinhr_sil_combo.txt 2>&1
