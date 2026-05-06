@@ -20,3 +20,12 @@ python train/train_swinhr.py --model_name swinhr_sil_decoder --output_path resul
 
 # Full: Stem + Temporal + RLK Fusion + Dense Decoder + Edge-aware Head
 python train/train_swinhr.py --model_name swinhr_sil_combo --output_path results_swinhr_sil_combo > log/swinhr_sil_combo.txt 2>&1
+
+# DCS A: Dynamic Enhancement Curve Prior，仅建模 SUB1-SUB8 动态增强曲线
+python train/train_swinhr.py --model_name swinhr_dcs_curve --output_path results_swinhr_dcs_curve > log/swinhr_dcs_curve.txt 2>&1
+
+# DCS B: Reliability-Aware Fusion，仅加入时间/空间可靠性剪影融合
+python train/train_swinhr.py --model_name swinhr_dcs_reliability --output_path results_swinhr_dcs_reliability > log/swinhr_dcs_reliability.txt 2>&1
+
+# DCS Full: 动态增强曲线 + 可靠性融合 + RLK/DenseDecoder/EdgeHead + 可分性损失
+python train/train_swinhr.py --model_name swinhr_dcs_full --output_path results_swinhr_dcs_full --bce_weight 0.5 --boundary_weight 0.2 --separability_weight 0.05 > log/swinhr_dcs_full.txt 2>&1

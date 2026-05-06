@@ -1,6 +1,7 @@
 import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import os
 import sys
@@ -79,6 +80,54 @@ def get_model(model_name):
     )
     return model
 
+
+def boundary_target(mask, kernel_size=3):
+    pad = kernel_size // 2
+    dilated = F.max_pool2d(mask, kernel_size=kernel_size, stride=1, padding=pad)
+    eroded = -F.max_pool2d(-mask, kernel_size=kernel_size, stride=1, padding=pad)
+    return (dilated - eroded).clamp(0, 1)
+
+
+def boundary_loss(logits, mask):
+    pred_boundary = boundary_target(torch.sigmoid(logits))
+    gt_boundary = boundary_target(mask)
+    return F.binary_cross_entropy(pred_boundary.clamp(1e-4, 1 - 1e-4), gt_boundary)
+
+
+def hard_negative_separability_loss(model, images, mask, margin=0.25):
+    aux = getattr(model, "aux", None)
+    if not aux or "separability_feature" not in aux:
+        return images.new_tensor(0.0)
+
+    features = F.normalize(aux["separability_feature"].float(), dim=1)
+    response = aux.get("subtraction_response", images[:, 1:].detach().abs().amax(dim=1, keepdim=True)).float()
+    mask_small = F.interpolate(mask, size=features.shape[-2:], mode="nearest")
+    response_small = F.interpolate(response, size=features.shape[-2:], mode="bilinear", align_corners=False)
+
+    losses = []
+    for b in range(features.shape[0]):
+        feat = features[b].flatten(1).transpose(0, 1)
+        pos = mask_small[b, 0].flatten() > 0.5
+        neg = ~pos
+        if pos.sum() < 2 or neg.sum() < 2:
+            continue
+
+        neg_response = response_small[b, 0].flatten()[neg]
+        threshold = torch.quantile(neg_response, 0.75)
+        hard_neg = neg.clone()
+        hard_neg[neg] = neg_response >= threshold
+        if hard_neg.sum() < 2:
+            hard_neg = neg
+
+        pos_proto = F.normalize(feat[pos].mean(dim=0, keepdim=True), dim=1)
+        pos_sim = (feat[pos] * pos_proto).sum(dim=1).mean()
+        hard_sim = (feat[hard_neg] * pos_proto).sum(dim=1).mean()
+        losses.append((1.0 - pos_sim) + F.relu(hard_sim + margin))
+
+    if not losses:
+        return images.new_tensor(0.0)
+    return torch.stack(losses).mean()
+
 # ==========================================
 # 3. 评估/测试通用函数
 # ==========================================
@@ -128,6 +177,9 @@ def main():
     parser.add_argument('--batch_size', type=int, default=16)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--num_workers', type=int, default=4) # Windows下如果不稳定可以改为0
+    parser.add_argument('--bce_weight', type=float, default=0.0)
+    parser.add_argument('--boundary_weight', type=float, default=0.0)
+    parser.add_argument('--separability_weight', type=float, default=0.0)
     args = parser.parse_args()
 
     os.makedirs(args.output_path, exist_ok=True)
@@ -156,6 +208,7 @@ def main():
     
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_fn = smp.losses.DiceLoss(mode='binary', from_logits=True)
+    bce_loss_fn = nn.BCEWithLogitsLoss()
     scaler = GradScaler()
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     
@@ -174,7 +227,14 @@ def main():
             optimizer.zero_grad()
             with autocast():
                 preds = model(img)
-                loss = loss_fn(preds, mask)
+                dice_loss = loss_fn(preds, mask)
+                loss = dice_loss
+                if args.bce_weight > 0:
+                    loss = loss + args.bce_weight * bce_loss_fn(preds, mask)
+                if args.boundary_weight > 0:
+                    loss = loss + args.boundary_weight * boundary_loss(preds, mask)
+                if args.separability_weight > 0:
+                    loss = loss + args.separability_weight * hard_negative_separability_loss(model, img, mask)
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)
