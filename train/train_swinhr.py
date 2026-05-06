@@ -10,7 +10,7 @@ import cv2
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 import argparse
 from importlib import import_module
 
@@ -89,9 +89,66 @@ def boundary_target(mask, kernel_size=3):
 
 
 def boundary_loss(logits, mask):
-    pred_boundary = boundary_target(torch.sigmoid(logits))
-    gt_boundary = boundary_target(mask)
-    return F.binary_cross_entropy(pred_boundary.clamp(1e-4, 1 - 1e-4), gt_boundary)
+    device_type = "cuda" if logits.is_cuda else "cpu"
+    with autocast(device_type, enabled=False):
+        logits = logits.float()
+        mask = mask.float()
+        pred_boundary = boundary_target(torch.sigmoid(logits))
+        gt_boundary = boundary_target(mask)
+        return F.binary_cross_entropy(pred_boundary.clamp(1e-4, 1 - 1e-4), gt_boundary)
+
+
+def unpack_model_output(output):
+    if isinstance(output, dict):
+        return output["logits"], output
+    if isinstance(output, (tuple, list)):
+        return output[0], {"extra": output[1:]}
+    return output, {}
+
+
+def approximate_signed_distance(mask, steps=16):
+    mask = mask.float()
+    inside = mask.clone()
+    outside = 1.0 - mask
+    dist_in = torch.zeros_like(mask)
+    dist_out = torch.zeros_like(mask)
+
+    cur_in = inside
+    cur_out = outside
+    for step in range(1, steps + 1):
+        eroded_in = -F.max_pool2d(-cur_in, kernel_size=3, stride=1, padding=1)
+        eroded_out = -F.max_pool2d(-cur_out, kernel_size=3, stride=1, padding=1)
+        shell_in = (cur_in - eroded_in).clamp(0, 1)
+        shell_out = (cur_out - eroded_out).clamp(0, 1)
+        dist_in = torch.where((shell_in > 0) & (dist_in == 0), torch.full_like(dist_in, step), dist_in)
+        dist_out = torch.where((shell_out > 0) & (dist_out == 0), torch.full_like(dist_out, step), dist_out)
+        cur_in = eroded_in
+        cur_out = eroded_out
+
+    dist_in = torch.where((inside > 0) & (dist_in == 0), torch.full_like(dist_in, steps), dist_in)
+    dist_out = torch.where((outside > 0) & (dist_out == 0), torch.full_like(dist_out, steps), dist_out)
+    return ((dist_in - dist_out) / float(steps)).clamp(-1, 1)
+
+
+def sdf_loss(output_info, mask):
+    if "sdf" not in output_info:
+        return mask.new_tensor(0.0)
+    sdf_pred = torch.tanh(output_info["sdf"].float())
+    with autocast("cuda" if mask.is_cuda else "cpu", enabled=False):
+        target = approximate_signed_distance(mask.float(), steps=16)
+        return F.smooth_l1_loss(sdf_pred.float(), target)
+
+
+def hard_negative_prediction_loss(logits, images, mask):
+    response = images[:, 1:].detach().abs().amax(dim=1, keepdim=True).float()
+    response = (response - response.amin(dim=(-2, -1), keepdim=True)) / (
+        response.amax(dim=(-2, -1), keepdim=True) - response.amin(dim=(-2, -1), keepdim=True) + 1e-6
+    )
+    hard_neg = (response > 0.6).float() * (1.0 - mask.float())
+    if hard_neg.sum() < 1:
+        return logits.new_tensor(0.0)
+    probs = torch.sigmoid(logits.float())
+    return (probs * hard_neg).sum() / hard_neg.sum()
 
 
 def hard_negative_separability_loss(model, images, mask, margin=0.25):
@@ -140,8 +197,9 @@ def evaluate(model, loader, device, desc="Validation"):
     with torch.no_grad():
         for img, mask, _ in tqdm(loader, desc=desc, leave=False):
             img, mask = img.to(device), mask.to(device)
-            with autocast():
-                preds = model(img)
+            with autocast('cuda', enabled=device.type == 'cuda'):
+                model_output = model(img)
+                preds, _ = unpack_model_output(model_output)
             
             # 预测二值化
             preds = (torch.sigmoid(preds) > 0.5).float()
@@ -180,6 +238,8 @@ def main():
     parser.add_argument('--bce_weight', type=float, default=0.0)
     parser.add_argument('--boundary_weight', type=float, default=0.0)
     parser.add_argument('--separability_weight', type=float, default=0.0)
+    parser.add_argument('--hardneg_weight', type=float, default=0.0)
+    parser.add_argument('--sdf_weight', type=float, default=0.0)
     args = parser.parse_args()
 
     os.makedirs(args.output_path, exist_ok=True)
@@ -209,7 +269,7 @@ def main():
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_fn = smp.losses.DiceLoss(mode='binary', from_logits=True)
     bce_loss_fn = nn.BCEWithLogitsLoss()
-    scaler = GradScaler()
+    scaler = GradScaler('cuda', enabled=device.type == 'cuda')
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
     
     best_dice = 0.0
@@ -225,8 +285,9 @@ def main():
             img, mask = img.to(device), mask.to(device)
             
             optimizer.zero_grad()
-            with autocast():
-                preds = model(img)
+            with autocast('cuda', enabled=device.type == 'cuda'):
+                model_output = model(img)
+                preds, output_info = unpack_model_output(model_output)
                 dice_loss = loss_fn(preds, mask)
                 loss = dice_loss
                 if args.bce_weight > 0:
@@ -235,6 +296,10 @@ def main():
                     loss = loss + args.boundary_weight * boundary_loss(preds, mask)
                 if args.separability_weight > 0:
                     loss = loss + args.separability_weight * hard_negative_separability_loss(model, img, mask)
+                if args.hardneg_weight > 0:
+                    loss = loss + args.hardneg_weight * hard_negative_prediction_loss(preds, img, mask)
+                if args.sdf_weight > 0:
+                    loss = loss + args.sdf_weight * sdf_loss(output_info, mask)
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)

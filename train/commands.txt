@@ -29,3 +29,15 @@ python train/train_swinhr.py --model_name swinhr_dcs_reliability --output_path r
 
 # DCS Full: 动态增强曲线 + 可靠性融合 + RLK/DenseDecoder/EdgeHead + 可分性损失
 python train/train_swinhr.py --model_name swinhr_dcs_full --output_path results_swinhr_dcs_full --bce_weight 0.5 --boundary_weight 0.2 --separability_weight 0.05 > log/swinhr_dcs_full.txt 2>&1
+
+# Paper A: Kinetic maps，将 SUB1-SUB8 转换为 AUC/Peak/TTP/Wash-in/Wash-out 等 DCE 动力学先验
+python train/train_swinhr.py --model_name swinhr_kinetic --output_path results_swinhr_kinetic --bce_weight 0.5 --boundary_weight 0.1 > log/swinhr_kinetic.txt 2>&1
+
+# Paper B: Hard negative suppression，压制 SUB 高响应但 GT 非肿瘤的 FGT/血管/伪影区域
+python train/train_swinhr.py --model_name swinhr_hardneg --output_path results_swinhr_hardneg --bce_weight 0.5 --hardneg_weight 0.2 --separability_weight 0.05 > log/swinhr_hardneg.txt 2>&1
+
+# Paper C: SDF geometry，分割头 + signed distance 几何边界头
+python train/train_swinhr.py --model_name swinhr_sdf --output_path results_swinhr_sdf --bce_weight 0.5 --boundary_weight 0.1 --sdf_weight 0.2 > log/swinhr_sdf.txt 2>&1
+
+# Paper Full: kinetic maps + reliability fusion + hard-negative suppression + SDF geometry
+python train/train_swinhr.py --model_name swinhr_paper_full --output_path results_swinhr_paper_full --bce_weight 0.5 --boundary_weight 0.1 --hardneg_weight 0.2 --separability_weight 0.05 --sdf_weight 0.2 > log/swinhr_paper_full.txt 2>&1
