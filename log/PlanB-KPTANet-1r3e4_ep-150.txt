@@ -1,0 +1,126 @@
+Loading Datasets...
+Train Size: 1202, Val Size: 117, Test Size: 417
+Initializing configured model from configs/kpta_net.yaml...
+Start Training...
+Epoch 1 | Train Loss: 1.3983 | Val Dice: 0.4236 | Val IoU: 0.2987 | Val Sens: 0.8673 | Val Prec: 0.3132
+>>> 💾 Best Model Saved! (Dice: 0.4236)
+Epoch 2 | Train Loss: 1.2906 | Val Dice: 0.3838 | Val IoU: 0.2629 | Val Sens: 0.8831 | Val Prec: 0.2670
+Epoch 3 | Train Loss: 1.1948 | Val Dice: 0.5271 | Val IoU: 0.4064 | Val Sens: 0.8622 | Val Prec: 0.4249
+>>> 💾 Best Model Saved! (Dice: 0.5271)
+Epoch 4 | Train Loss: 1.0967 | Val Dice: 0.4644 | Val IoU: 0.3484 | Val Sens: 0.8339 | Val Prec: 0.3667
+Epoch 5 | Train Loss: 1.0133 | Val Dice: 0.5115 | Val IoU: 0.3866 | Val Sens: 0.8867 | Val Prec: 0.3999
+Epoch 6 | Train Loss: 0.8763 | Val Dice: 0.4988 | Val IoU: 0.3747 | Val Sens: 0.8850 | Val Prec: 0.3985
+Epoch 7 | Train Loss: 0.6740 | Val Dice: 0.6060 | Val IoU: 0.4909 | Val Sens: 0.7829 | Val Prec: 0.5634
+>>> 💾 Best Model Saved! (Dice: 0.6060)
+Epoch 8 | Train Loss: 0.5301 | Val Dice: 0.6521 | Val IoU: 0.5411 | Val Sens: 0.8111 | Val Prec: 0.6101
+>>> 💾 Best Model Saved! (Dice: 0.6521)
+Epoch 9 | Train Loss: 0.4557 | Val Dice: 0.6516 | Val IoU: 0.5337 | Val Sens: 0.7891 | Val Prec: 0.6190
+Epoch 10 | Train Loss: 0.4085 | Val Dice: 0.6469 | Val IoU: 0.5413 | Val Sens: 0.7753 | Val Prec: 0.6259
+Epoch 11 | Train Loss: 0.3627 | Val Dice: 0.6735 | Val IoU: 0.5653 | Val Sens: 0.8079 | Val Prec: 0.6374
+>>> 💾 Best Model Saved! (Dice: 0.6735)
+Epoch 12 | Train Loss: 0.3345 | Val Dice: 0.6854 | Val IoU: 0.5756 | Val Sens: 0.7860 | Val Prec: 0.6856
+>>> 💾 Best Model Saved! (Dice: 0.6854)
+Epoch 13 | Train Loss: 0.3151 | Val Dice: 0.6773 | Val IoU: 0.5677 | Val Sens: 0.7846 | Val Prec: 0.6589
+Epoch 14 | Train Loss: 0.3010 | Val Dice: 0.6753 | Val IoU: 0.5678 | Val Sens: 0.7096 | Val Prec: 0.7136
+Epoch 15 | Train Loss: 0.2923 | Val Dice: 0.6765 | Val IoU: 0.5740 | Val Sens: 0.7456 | Val Prec: 0.6762
+Epoch 16 | Train Loss: 0.2742 | Val Dice: 0.6847 | Val IoU: 0.5846 | Val Sens: 0.7340 | Val Prec: 0.6906
+Epoch 17 | Train Loss: 0.2577 | Val Dice: 0.6740 | Val IoU: 0.5720 | Val Sens: 0.7200 | Val Prec: 0.6883
+Epoch 18 | Train Loss: 0.2491 | Val Dice: 0.6937 | Val IoU: 0.5812 | Val Sens: 0.7272 | Val Prec: 0.7299
+>>> 💾 Best Model Saved! (Dice: 0.6937)
+Epoch 19 | Train Loss: 0.2382 | Val Dice: 0.6884 | Val IoU: 0.5858 | Val Sens: 0.7027 | Val Prec: 0.7298
+Epoch 20 | Train Loss: 0.2280 | Val Dice: 0.6944 | Val IoU: 0.5849 | Val Sens: 0.7470 | Val Prec: 0.6994
+>>> 💾 Best Model Saved! (Dice: 0.6944)
+Epoch 21 | Train Loss: 0.2173 | Val Dice: 0.7057 | Val IoU: 0.5994 | Val Sens: 0.7578 | Val Prec: 0.7144
+>>> 💾 Best Model Saved! (Dice: 0.7057)
+Epoch 22 | Train Loss: 0.2166 | Val Dice: 0.6588 | Val IoU: 0.5572 | Val Sens: 0.7150 | Val Prec: 0.6713
+Epoch 23 | Train Loss: 0.2100 | Val Dice: 0.6834 | Val IoU: 0.5908 | Val Sens: 0.7374 | Val Prec: 0.6906
+Epoch 24 | Train Loss: 0.2028 | Val Dice: 0.6717 | Val IoU: 0.5730 | Val Sens: 0.7101 | Val Prec: 0.7072
+Epoch 25 | Train Loss: 0.2053 | Val Dice: 0.6977 | Val IoU: 0.5930 | Val Sens: 0.7622 | Val Prec: 0.7039
+Epoch 26 | Train Loss: 0.1913 | Val Dice: 0.6791 | Val IoU: 0.5801 | Val Sens: 0.7527 | Val Prec: 0.6745
+Epoch 27 | Train Loss: 0.1865 | Val Dice: 0.6776 | Val IoU: 0.5727 | Val Sens: 0.7675 | Val Prec: 0.6605
+Epoch 28 | Train Loss: 0.1801 | Val Dice: 0.6753 | Val IoU: 0.5740 | Val Sens: 0.6927 | Val Prec: 0.7166
+Epoch 29 | Train Loss: 0.1738 | Val Dice: 0.6851 | Val IoU: 0.5794 | Val Sens: 0.7061 | Val Prec: 0.7196
+Epoch 30 | Train Loss: 0.1722 | Val Dice: 0.6978 | Val IoU: 0.5970 | Val Sens: 0.7502 | Val Prec: 0.7077
+Epoch 31 | Train Loss: 0.1711 | Val Dice: 0.6741 | Val IoU: 0.5700 | Val Sens: 0.7161 | Val Prec: 0.7081
+Epoch 32 | Train Loss: 0.1639 | Val Dice: 0.6760 | Val IoU: 0.5786 | Val Sens: 0.7160 | Val Prec: 0.6941
+Epoch 33 | Train Loss: 0.1577 | Val Dice: 0.6791 | Val IoU: 0.5777 | Val Sens: 0.7063 | Val Prec: 0.7047
+Epoch 34 | Train Loss: 0.1542 | Val Dice: 0.6719 | Val IoU: 0.5721 | Val Sens: 0.7502 | Val Prec: 0.6558
+Epoch 35 | Train Loss: 0.1522 | Val Dice: 0.6968 | Val IoU: 0.5896 | Val Sens: 0.7987 | Val Prec: 0.6734
+Epoch 36 | Train Loss: 0.1554 | Val Dice: 0.6730 | Val IoU: 0.5732 | Val Sens: 0.7435 | Val Prec: 0.6797
+Epoch 37 | Train Loss: 0.1449 | Val Dice: 0.6822 | Val IoU: 0.5860 | Val Sens: 0.7344 | Val Prec: 0.6847
+Epoch 38 | Train Loss: 0.1399 | Val Dice: 0.6512 | Val IoU: 0.5497 | Val Sens: 0.6629 | Val Prec: 0.6888
+Epoch 39 | Train Loss: 0.1345 | Val Dice: 0.6752 | Val IoU: 0.5755 | Val Sens: 0.6827 | Val Prec: 0.7221
+Epoch 40 | Train Loss: 0.1297 | Val Dice: 0.6470 | Val IoU: 0.5513 | Val Sens: 0.6655 | Val Prec: 0.6942
+Epoch 41 | Train Loss: 0.1300 | Val Dice: 0.7037 | Val IoU: 0.6003 | Val Sens: 0.7685 | Val Prec: 0.6927
+Epoch 42 | Train Loss: 0.1267 | Val Dice: 0.6347 | Val IoU: 0.5376 | Val Sens: 0.6429 | Val Prec: 0.6801
+Epoch 43 | Train Loss: 0.1337 | Val Dice: 0.6620 | Val IoU: 0.5676 | Val Sens: 0.7088 | Val Prec: 0.6584
+Epoch 44 | Train Loss: 0.1220 | Val Dice: 0.6664 | Val IoU: 0.5649 | Val Sens: 0.6794 | Val Prec: 0.7003
+Epoch 45 | Train Loss: 0.1227 | Val Dice: 0.6375 | Val IoU: 0.5442 | Val Sens: 0.6361 | Val Prec: 0.6923
+Epoch 46 | Train Loss: 0.1168 | Val Dice: 0.6924 | Val IoU: 0.5933 | Val Sens: 0.7429 | Val Prec: 0.6951
+Epoch 47 | Train Loss: 0.1120 | Val Dice: 0.6936 | Val IoU: 0.5943 | Val Sens: 0.7205 | Val Prec: 0.7121
+Epoch 48 | Train Loss: 0.1111 | Val Dice: 0.6440 | Val IoU: 0.5470 | Val Sens: 0.6628 | Val Prec: 0.6937
+Epoch 49 | Train Loss: 0.1089 | Val Dice: 0.6900 | Val IoU: 0.5942 | Val Sens: 0.7326 | Val Prec: 0.6938
+Epoch 50 | Train Loss: 0.1031 | Val Dice: 0.6868 | Val IoU: 0.5901 | Val Sens: 0.7308 | Val Prec: 0.6916
+Epoch 51 | Train Loss: 0.1019 | Val Dice: 0.6368 | Val IoU: 0.5402 | Val Sens: 0.6488 | Val Prec: 0.6820
+Epoch 52 | Train Loss: 0.0998 | Val Dice: 0.6646 | Val IoU: 0.5695 | Val Sens: 0.7071 | Val Prec: 0.6729
+Epoch 53 | Train Loss: 0.0968 | Val Dice: 0.6547 | Val IoU: 0.5598 | Val Sens: 0.6830 | Val Prec: 0.6777
+Epoch 54 | Train Loss: 0.0972 | Val Dice: 0.6712 | Val IoU: 0.5722 | Val Sens: 0.6799 | Val Prec: 0.7144
+Epoch 55 | Train Loss: 0.0947 | Val Dice: 0.6692 | Val IoU: 0.5711 | Val Sens: 0.6987 | Val Prec: 0.6980
+Epoch 56 | Train Loss: 0.0900 | Val Dice: 0.6730 | Val IoU: 0.5768 | Val Sens: 0.7115 | Val Prec: 0.6859
+Epoch 57 | Train Loss: 0.0869 | Val Dice: 0.6681 | Val IoU: 0.5677 | Val Sens: 0.6746 | Val Prec: 0.7075
+Epoch 58 | Train Loss: 0.0893 | Val Dice: 0.6656 | Val IoU: 0.5697 | Val Sens: 0.6755 | Val Prec: 0.7059
+Epoch 59 | Train Loss: 0.0837 | Val Dice: 0.6779 | Val IoU: 0.5817 | Val Sens: 0.7003 | Val Prec: 0.7120
+Epoch 60 | Train Loss: 0.0838 | Val Dice: 0.6527 | Val IoU: 0.5554 | Val Sens: 0.6647 | Val Prec: 0.6938
+Epoch 61 | Train Loss: 0.0803 | Val Dice: 0.6616 | Val IoU: 0.5681 | Val Sens: 0.7016 | Val Prec: 0.6789
+Epoch 62 | Train Loss: 0.0802 | Val Dice: 0.6614 | Val IoU: 0.5666 | Val Sens: 0.6854 | Val Prec: 0.6852
+Epoch 63 | Train Loss: 0.0841 | Val Dice: 0.6758 | Val IoU: 0.5795 | Val Sens: 0.7042 | Val Prec: 0.7008
+Epoch 64 | Train Loss: 0.0747 | Val Dice: 0.6679 | Val IoU: 0.5664 | Val Sens: 0.6733 | Val Prec: 0.7163
+Epoch 65 | Train Loss: 0.0729 | Val Dice: 0.6907 | Val IoU: 0.5907 | Val Sens: 0.7129 | Val Prec: 0.7109
+Epoch 66 | Train Loss: 0.0737 | Val Dice: 0.6725 | Val IoU: 0.5713 | Val Sens: 0.6854 | Val Prec: 0.7013
+Epoch 67 | Train Loss: 0.0695 | Val Dice: 0.6695 | Val IoU: 0.5716 | Val Sens: 0.6837 | Val Prec: 0.7078
+Epoch 68 | Train Loss: 0.0679 | Val Dice: 0.6716 | Val IoU: 0.5684 | Val Sens: 0.6773 | Val Prec: 0.7136
+Epoch 69 | Train Loss: 0.0654 | Val Dice: 0.6673 | Val IoU: 0.5694 | Val Sens: 0.6931 | Val Prec: 0.6914
+Epoch 70 | Train Loss: 0.0658 | Val Dice: 0.6733 | Val IoU: 0.5725 | Val Sens: 0.6775 | Val Prec: 0.7182
+Epoch 71 | Train Loss: 0.0628 | Val Dice: 0.6504 | Val IoU: 0.5514 | Val Sens: 0.6508 | Val Prec: 0.7103
+Epoch 72 | Train Loss: 0.0618 | Val Dice: 0.6538 | Val IoU: 0.5544 | Val Sens: 0.6661 | Val Prec: 0.6972
+Epoch 73 | Train Loss: 0.0606 | Val Dice: 0.6561 | Val IoU: 0.5557 | Val Sens: 0.6652 | Val Prec: 0.6932
+Epoch 74 | Train Loss: 0.0602 | Val Dice: 0.6558 | Val IoU: 0.5574 | Val Sens: 0.6679 | Val Prec: 0.7032
+Epoch 75 | Train Loss: 0.0590 | Val Dice: 0.6563 | Val IoU: 0.5565 | Val Sens: 0.6810 | Val Prec: 0.6844
+Epoch 76 | Train Loss: 0.0579 | Val Dice: 0.6666 | Val IoU: 0.5681 | Val Sens: 0.6889 | Val Prec: 0.6974
+Epoch 77 | Train Loss: 0.0565 | Val Dice: 0.6573 | Val IoU: 0.5586 | Val Sens: 0.6767 | Val Prec: 0.6916
+Epoch 78 | Train Loss: 0.0580 | Val Dice: 0.6515 | Val IoU: 0.5548 | Val Sens: 0.6672 | Val Prec: 0.6896
+Epoch 79 | Train Loss: 0.0546 | Val Dice: 0.6594 | Val IoU: 0.5611 | Val Sens: 0.6791 | Val Prec: 0.6915
+Epoch 80 | Train Loss: 0.0543 | Val Dice: 0.6507 | Val IoU: 0.5528 | Val Sens: 0.6596 | Val Prec: 0.6945
+Epoch 81 | Train Loss: 0.0534 | Val Dice: 0.6596 | Val IoU: 0.5627 | Val Sens: 0.6798 | Val Prec: 0.6902
+Epoch 82 | Train Loss: 0.0524 | Val Dice: 0.6519 | Val IoU: 0.5540 | Val Sens: 0.6647 | Val Prec: 0.6902
+Epoch 83 | Train Loss: 0.0518 | Val Dice: 0.6564 | Val IoU: 0.5578 | Val Sens: 0.6708 | Val Prec: 0.6910
+Epoch 84 | Train Loss: 0.0513 | Val Dice: 0.6546 | Val IoU: 0.5564 | Val Sens: 0.6707 | Val Prec: 0.6889
+Epoch 85 | Train Loss: 0.0511 | Val Dice: 0.6562 | Val IoU: 0.5580 | Val Sens: 0.6724 | Val Prec: 0.6913
+Epoch 86 | Train Loss: 0.0505 | Val Dice: 0.6553 | Val IoU: 0.5566 | Val Sens: 0.6709 | Val Prec: 0.6908
+Epoch 87 | Train Loss: 0.0497 | Val Dice: 0.6549 | Val IoU: 0.5570 | Val Sens: 0.6704 | Val Prec: 0.6911
+Epoch 88 | Train Loss: 0.0495 | Val Dice: 0.6551 | Val IoU: 0.5567 | Val Sens: 0.6680 | Val Prec: 0.6935
+Epoch 89 | Train Loss: 0.0492 | Val Dice: 0.6549 | Val IoU: 0.5563 | Val Sens: 0.6673 | Val Prec: 0.6938
+Epoch 90 | Train Loss: 0.0489 | Val Dice: 0.6537 | Val IoU: 0.5553 | Val Sens: 0.6677 | Val Prec: 0.6908
+Epoch 91 | Train Loss: 0.0510 | Val Dice: 0.6540 | Val IoU: 0.5556 | Val Sens: 0.6674 | Val Prec: 0.6916
+Epoch 92 | Train Loss: 0.0486 | Val Dice: 0.6544 | Val IoU: 0.5560 | Val Sens: 0.6692 | Val Prec: 0.6901
+Epoch 93 | Train Loss: 0.0483 | Val Dice: 0.6543 | Val IoU: 0.5557 | Val Sens: 0.6677 | Val Prec: 0.6917
+Epoch 94 | Train Loss: 0.0483 | Val Dice: 0.6550 | Val IoU: 0.5563 | Val Sens: 0.6699 | Val Prec: 0.6903
+Epoch 95 | Train Loss: 0.0487 | Val Dice: 0.6539 | Val IoU: 0.5553 | Val Sens: 0.6663 | Val Prec: 0.6914
+Epoch 96 | Train Loss: 0.0480 | Val Dice: 0.6547 | Val IoU: 0.5560 | Val Sens: 0.6688 | Val Prec: 0.6907
+Epoch 97 | Train Loss: 0.0480 | Val Dice: 0.6541 | Val IoU: 0.5553 | Val Sens: 0.6665 | Val Prec: 0.6923
+Epoch 98 | Train Loss: 0.0479 | Val Dice: 0.6545 | Val IoU: 0.5558 | Val Sens: 0.6678 | Val Prec: 0.6917
+Epoch 99 | Train Loss: 0.0482 | Val Dice: 0.6542 | Val IoU: 0.5555 | Val Sens: 0.6674 | Val Prec: 0.6915
+Epoch 100 | Train Loss: 0.0480 | Val Dice: 0.6543 | Val IoU: 0.5556 | Val Sens: 0.6674 | Val Prec: 0.6915
+
+=======================================
+Training Finished. Starting Testing...
+=======================================
+Loaded Best Model from ./results_kpta_net/best_model.pth
+
+>>>> FINAL TEST RESULTS <<<<
+Test Set Size: 417
+Test Dice Score: 0.7770
+Test IoU Score:  0.6697
+Test Sensitivity: 0.7811
+Test Precision:   0.8196
+=======================================
