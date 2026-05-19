@@ -1,0 +1,48 @@
+train:
+  train_path: "./processed_17ch_dce/train"
+  val_path: "./processed_17ch_dce/val"
+  test_path: "./processed_17ch_dce/test"
+  output_path: "./results_kpta_net"
+  epochs: 100
+  batch_size: 8
+  lr: 0.0003
+  num_workers: 4
+
+model:
+  name: "kpta_net"
+  in_channels: 17
+  base_channels: 32
+  phase_indices:
+    pre: 0
+    post: [1, 2, 3, 4, 5, 6, 7, 8]
+    subtraction: [9, 10, 11, 12, 13, 14, 15, 16]
+  compute_subtraction_if_missing: true
+  use_pseudo_kinetic_maps: true
+  phase_encoder_mode: "shared"
+  use_pixelwise_phase_attention: true
+  use_uncertainty_head: true
+  use_boundary_head: true
+  use_uncertainty_refinement: true
+  store_attention_maps: true
+  return_dict: true
+  kinetic_eps: 0.000001
+  local_pool_kernel: 7
+  kinetic_clip_value: 5.0
+  kinetic_normalize: "per_image"
+
+loss:
+  name: "kpta_net_loss"
+  bce_weight: 0.5
+  lambda_boundary: 0.2
+  lambda_uncertainty: 0.1
+  lambda_attention_smooth: 0.01
+  boundary_thickness: 3
+  kinetic_eps: 0.000001
+
+ablation:
+  disable_pseudo_kinetic_maps: false
+  disable_pixelwise_phase_attention: false
+  disable_uncertainty_refinement: false
+  disable_boundary_head: false
+  disable_uncertainty_head: false
+  disable_attention_smooth_loss: false

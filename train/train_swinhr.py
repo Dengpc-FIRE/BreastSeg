@@ -262,6 +262,11 @@ def main():
     parser.add_argument('--disable_subtraction_guided_fusion', action='store_true')
     parser.add_argument('--disable_boundary_head', action='store_true')
     parser.add_argument('--disable_kinetic_loss', action='store_true')
+    parser.add_argument('--disable_pseudo_kinetic_maps', action='store_true')
+    parser.add_argument('--disable_pixelwise_phase_attention', action='store_true')
+    parser.add_argument('--disable_uncertainty_refinement', action='store_true')
+    parser.add_argument('--disable_uncertainty_head', action='store_true')
+    parser.add_argument('--disable_attention_smooth_loss', action='store_true')
     args = parser.parse_args()
     config = load_config(resolve_config_path(args.config))
     if config:
@@ -271,6 +276,11 @@ def main():
             "disable_subtraction_guided_fusion",
             "disable_boundary_head",
             "disable_kinetic_loss",
+            "disable_pseudo_kinetic_maps",
+            "disable_pixelwise_phase_attention",
+            "disable_uncertainty_refinement",
+            "disable_uncertainty_head",
+            "disable_attention_smooth_loss",
         ):
             if getattr(args, key, False):
                 config["ablation"][key] = True

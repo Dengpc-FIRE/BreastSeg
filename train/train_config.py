@@ -3,12 +3,12 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
-
 
 def load_config(path: Optional[str]) -> Dict[str, Any]:
     if not path:
         return {}
+    import yaml
+
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     return data
@@ -32,6 +32,10 @@ def build_model_from_config(config: Dict[str, Any]):
         from model.sg_ktfnet import SGKTFNet
 
         return SGKTFNet(**model_cfg)
+    if name in {"kpta_net", "kptanet", "KPTANet"}:
+        from model.kpta_net import KPTANet
+
+        return KPTANet(**model_cfg)
 
     module = import_module(f"model.{name}")
     cls = getattr(module, "SwinHR")
@@ -50,6 +54,10 @@ def build_loss_from_config(config: Dict[str, Any]):
         from train.losses import SGKTFNetLoss
 
         return SGKTFNetLoss(**loss_cfg)
+    if name in {"kpta_net_loss", "kptanet_loss", "KPTANetLoss"}:
+        from train.losses import KPTANetLoss
+
+        return KPTANetLoss(**loss_cfg)
     raise ValueError(f"Unknown configured loss: {name}")
 
 
