@@ -249,9 +249,9 @@ def main():
     parser.add_argument('--output_path', type=str, default='./results_unet_9ch')
     parser.add_argument('--model_name', type=str, default='swinhr_v9',
                         help='SwinHR model file under model/, e.g. swinhr_v7, swinhr_v8, swinhr_v9.')
-    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--lr', type=float, default=3e-4)
+    parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--num_workers', type=int, default=4) # Windows下如果不稳定可以改为0
     parser.add_argument('--bce_weight', type=float, default=0.0)
     parser.add_argument('--boundary_weight', type=float, default=0.0)
@@ -267,10 +267,6 @@ def main():
     parser.add_argument('--disable_uncertainty_refinement', action='store_true')
     parser.add_argument('--disable_uncertainty_head', action='store_true')
     parser.add_argument('--disable_attention_smooth_loss', action='store_true')
-    parser.add_argument('--disable_phase_dropout', action='store_true')
-    parser.add_argument('--disable_kinetic_prior_encoder', action='store_true')
-    parser.add_argument('--disable_kinetic_fusion', action='store_true')
-    parser.add_argument('--disable_temporal_contrastive_loss', action='store_true')
     args = parser.parse_args()
     config = load_config(resolve_config_path(args.config))
     if config:
@@ -285,10 +281,6 @@ def main():
             "disable_uncertainty_refinement",
             "disable_uncertainty_head",
             "disable_attention_smooth_loss",
-            "disable_phase_dropout",
-            "disable_kinetic_prior_encoder",
-            "disable_kinetic_fusion",
-            "disable_temporal_contrastive_loss",
         ):
             if getattr(args, key, False):
                 config["ablation"][key] = True
