@@ -251,7 +251,7 @@ def main():
                         help='SwinHR model file under model/, e.g. swinhr_v7, swinhr_v8, swinhr_v9.')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=16)
-    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--num_workers', type=int, default=4) # Windows下如果不稳定可以改为0
     parser.add_argument('--bce_weight', type=float, default=0.0)
     parser.add_argument('--boundary_weight', type=float, default=0.0)
