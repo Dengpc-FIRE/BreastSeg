@@ -36,6 +36,16 @@ def build_model_from_config(config: Dict[str, Any]):
         from model.kpta_net import KPTANet
 
         return KPTANet(**model_cfg)
+    if name in {"kpr_net", "kprnet", "KPRNet"}:
+        from model.kpr_net import KPRNet
+
+        model_cfg["phase_dropout"] = deepcopy(config.get("phase_dropout", {}))
+        loss_cfg = config.get("loss", {})
+        if "contrastive_temperature" in loss_cfg:
+            model_cfg.setdefault("contrastive_temperature", loss_cfg["contrastive_temperature"])
+        if "min_tumor_pixels" in loss_cfg:
+            model_cfg.setdefault("min_tumor_pixels", loss_cfg["min_tumor_pixels"])
+        return KPRNet(**model_cfg)
 
     module = import_module(f"model.{name}")
     cls = getattr(module, "SwinHR")
@@ -58,6 +68,10 @@ def build_loss_from_config(config: Dict[str, Any]):
         from train.losses import KPTANetLoss
 
         return KPTANetLoss(**loss_cfg)
+    if name in {"kpr_net_loss", "kprnet_loss", "KPRNetLoss"}:
+        from train.losses import KPRNetLoss
+
+        return KPRNetLoss(**loss_cfg)
     raise ValueError(f"Unknown configured loss: {name}")
 
 

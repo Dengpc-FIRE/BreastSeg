@@ -267,6 +267,10 @@ def main():
     parser.add_argument('--disable_uncertainty_refinement', action='store_true')
     parser.add_argument('--disable_uncertainty_head', action='store_true')
     parser.add_argument('--disable_attention_smooth_loss', action='store_true')
+    parser.add_argument('--disable_phase_dropout', action='store_true')
+    parser.add_argument('--disable_kinetic_prior_encoder', action='store_true')
+    parser.add_argument('--disable_kinetic_fusion', action='store_true')
+    parser.add_argument('--disable_temporal_contrastive_loss', action='store_true')
     args = parser.parse_args()
     config = load_config(resolve_config_path(args.config))
     if config:
@@ -281,6 +285,10 @@ def main():
             "disable_uncertainty_refinement",
             "disable_uncertainty_head",
             "disable_attention_smooth_loss",
+            "disable_phase_dropout",
+            "disable_kinetic_prior_encoder",
+            "disable_kinetic_fusion",
+            "disable_temporal_contrastive_loss",
         ):
             if getattr(args, key, False):
                 config["ablation"][key] = True

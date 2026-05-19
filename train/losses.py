@@ -192,3 +192,115 @@ class KPTANetLoss(nn.Module):
             loss = loss + self.lambda_attention_smooth * smooth
 
         return torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
+
+
+class TemporalContrastiveLoss(nn.Module):
+    def __init__(self, temperature: float = 0.1, min_tumor_pixels: int = 20) -> None:
+        super().__init__()
+        self.temperature = temperature
+        self.min_tumor_pixels = min_tumor_pixels
+
+    def forward(self, embeddings, target: torch.Tensor) -> torch.Tensor:
+        if not embeddings or "phase_features" not in embeddings:
+            return target.new_tensor(0.0)
+        phase_features = embeddings["phase_features"].float()
+        phase_mask = embeddings.get("phase_mask")
+        if phase_features.ndim != 5 or phase_features.shape[1] <= 1:
+            return phase_features.new_tensor(0.0)
+        if phase_mask is None:
+            phase_mask = phase_features.new_ones((phase_features.shape[0], phase_features.shape[1]))
+        phase_mask = phase_mask.to(device=phase_features.device, dtype=phase_features.dtype)
+        target_small = F.interpolate(target.float(), size=phase_features.shape[-2:], mode="nearest")
+
+        tumor_embeds = []
+        bg_embeds = []
+        sample_ids = []
+        for b in range(phase_features.shape[0]):
+            tumor = target_small[b : b + 1]
+            bg = 1.0 - tumor
+            if tumor.sum() < self.min_tumor_pixels or bg.sum() < self.min_tumor_pixels:
+                continue
+            available = torch.nonzero(phase_mask[b] > 0.5, as_tuple=False).flatten()
+            if available.numel() <= 1:
+                continue
+            for t in available.tolist():
+                feat = phase_features[b, t]
+                tumor_embeds.append(self._masked_pool(feat, tumor[0]))
+                bg_embeds.append(self._masked_pool(feat, bg[0]))
+                sample_ids.append(b)
+
+        if len(tumor_embeds) < 2 or len(bg_embeds) < 1:
+            return phase_features.new_tensor(0.0)
+
+        tumor_embeds = F.normalize(torch.stack(tumor_embeds), dim=1)
+        bg_embeds = F.normalize(torch.stack(bg_embeds), dim=1)
+        sample_ids_t = torch.tensor(sample_ids, device=phase_features.device)
+        losses = []
+        for idx in range(tumor_embeds.shape[0]):
+            pos_mask = (sample_ids_t == sample_ids_t[idx])
+            pos_mask[idx] = False
+            if pos_mask.sum() < 1:
+                continue
+            pos_logits = torch.matmul(tumor_embeds[idx : idx + 1], tumor_embeds[pos_mask].T).flatten() / self.temperature
+            neg_logits_bg = torch.matmul(tumor_embeds[idx : idx + 1], bg_embeds.T).flatten() / self.temperature
+            other_tumor = sample_ids_t != sample_ids_t[idx]
+            neg_logits = neg_logits_bg
+            if other_tumor.any():
+                neg_logits_other = torch.matmul(tumor_embeds[idx : idx + 1], tumor_embeds[other_tumor].T).flatten() / self.temperature
+                neg_logits = torch.cat([neg_logits, neg_logits_other], dim=0)
+            numerator = torch.logsumexp(pos_logits, dim=0)
+            denominator = torch.logsumexp(torch.cat([pos_logits, neg_logits], dim=0), dim=0)
+            losses.append(-(numerator - denominator))
+
+        if not losses:
+            return phase_features.new_tensor(0.0)
+        return torch.nan_to_num(torch.stack(losses).mean(), nan=0.0, posinf=0.0, neginf=0.0)
+
+    @staticmethod
+    def _masked_pool(feat: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        denom = mask.sum().clamp_min(1.0)
+        return (feat * mask).sum(dim=(1, 2)) / denom
+
+
+class KPRNetLoss(nn.Module):
+    def __init__(
+        self,
+        lambda_contrastive: float = 0.1,
+        lambda_kinetic: float = 0.05,
+        contrastive_temperature: float = 0.1,
+        min_tumor_pixels: int = 20,
+        kinetic_margin: float = 0.05,
+        peritumor_ring_size: int = 5,
+        kinetic_eps: float = 1e-6,
+        bce_weight: float = 0.5,
+        ablation: Optional[Dict] = None,
+        **_: Dict,
+    ) -> None:
+        super().__init__()
+        ablation = ablation or {}
+        self.seg_loss = DiceBCELoss(bce_weight=bce_weight)
+        self.lambda_contrastive = (
+            0.0 if ablation.get("disable_temporal_contrastive_loss", False) else lambda_contrastive
+        )
+        self.lambda_kinetic = 0.0 if ablation.get("disable_kinetic_loss", False) else lambda_kinetic
+        self.kinetic_loss = KineticConsistencyLoss(
+            margin=kinetic_margin,
+            ring_size=peritumor_ring_size,
+            eps=kinetic_eps,
+        )
+        self.temporal_contrastive = TemporalContrastiveLoss(
+            temperature=contrastive_temperature,
+            min_tumor_pixels=min_tumor_pixels,
+        )
+
+    def forward(self, output, target: torch.Tensor, images: Optional[torch.Tensor] = None) -> torch.Tensor:
+        seg_logits, info = unpack_model_output(output)
+        loss = self.seg_loss(seg_logits, target)
+        if self.lambda_kinetic > 0:
+            loss = loss + self.lambda_kinetic * self.kinetic_loss(seg_logits, info.get("kinetic_maps"), target)
+        if self.lambda_contrastive > 0:
+            loss = loss + self.lambda_contrastive * self.temporal_contrastive(
+                info.get("contrastive_embeddings"),
+                target,
+            )
+        return torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)

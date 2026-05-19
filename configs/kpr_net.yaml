@@ -1,0 +1,49 @@
+train:
+  train_path: "./processed_17ch_dce/train"
+  val_path: "./processed_17ch_dce/val"
+  test_path: "./processed_17ch_dce/test"
+  output_path: "./results_kpr_net"
+  epochs: 100
+  batch_size: 8
+  lr: 0.0003
+  num_workers: 4
+
+model:
+  name: "kpr_net"
+  in_channels: 17
+  base_channels: 32
+  phase_indices:
+    pre: 0
+    post: [1, 2, 3, 4, 5, 6, 7, 8]
+    subtraction: [9, 10, 11, 12, 13, 14, 15, 16]
+  compute_subtraction_if_missing: true
+  use_kinetic_prior_encoder: true
+  fusion_mode: "gated"
+  use_phase_embedding: true
+  support_missing_phase: true
+  return_dict: true
+  kinetic_eps: 0.000001
+
+phase_dropout:
+  enabled: true
+  drop_prob: 0.3
+  replacement: "zero"
+  min_available_post_phases: 1
+
+loss:
+  name: "kpr_net_loss"
+  bce_weight: 0.5
+  lambda_contrastive: 0.1
+  lambda_kinetic: 0.05
+  contrastive_temperature: 0.1
+  min_tumor_pixels: 20
+  kinetic_margin: 0.05
+  peritumor_ring_size: 5
+  kinetic_eps: 0.000001
+
+ablation:
+  disable_phase_dropout: false
+  disable_kinetic_prior_encoder: false
+  disable_kinetic_fusion: false
+  disable_temporal_contrastive_loss: false
+  disable_kinetic_loss: false
