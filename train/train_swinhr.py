@@ -18,6 +18,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from train.train_config import (  # noqa: E402
+    apply_config_to_args,
+    build_loss_from_config,
+    build_model_from_config,
+    load_config,
+    resolve_config_path,
+)
+
 # ==========================================
 # 1. Dataset (逻辑保持不变)
 # ==========================================
@@ -100,6 +108,8 @@ def boundary_loss(logits, mask):
 
 def unpack_model_output(output):
     if isinstance(output, dict):
+        if "seg_logits" in output:
+            return output["seg_logits"], output
         return output["logits"], output
     if isinstance(output, (tuple, list)):
         return output[0], {"extra": output[1:]}
@@ -193,6 +203,8 @@ def evaluate(model, loader, device, desc="Validation"):
     dice_scores = []
     # 也可以加 IoU
     iou_scores = []
+    sensitivity_scores = []
+    precision_scores = []
     
     with torch.no_grad():
         for img, mask, _ in tqdm(loader, desc=desc, leave=False):
@@ -211,17 +223,23 @@ def evaluate(model, loader, device, desc="Validation"):
             dice = smp.metrics.f1_score(tp, fp, fn, tn, reduction="micro-imagewise")
             # IoU
             iou = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro-imagewise")
+            sensitivity = (tp.float() / (tp.float() + fn.float() + 1e-7)).mean()
+            precision = (tp.float() / (tp.float() + fp.float() + 1e-7)).mean()
             
             dice_scores.append(dice.item())
             iou_scores.append(iou.item())
+            sensitivity_scores.append(sensitivity.item())
+            precision_scores.append(precision.item())
     
-    return np.mean(dice_scores), np.mean(iou_scores)
+    return np.mean(dice_scores), np.mean(iou_scores), np.mean(sensitivity_scores), np.mean(precision_scores)
 
 # ==========================================
 # 4. 训练主流程
 # ==========================================
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default=None,
+                        help='Optional YAML config. If omitted, the legacy --model_name path is used.')
     # 【修改点 1】默认路径改为新的 'processed_9ch_vibrant_label'
     parser.add_argument('--train_path', type=str, default='./processed_9ch_vibrant_label/train')
     parser.add_argument('--val_path', type=str, default='./processed_9ch_vibrant_label/val')
@@ -240,7 +258,23 @@ def main():
     parser.add_argument('--separability_weight', type=float, default=0.0)
     parser.add_argument('--hardneg_weight', type=float, default=0.0)
     parser.add_argument('--sdf_weight', type=float, default=0.0)
+    parser.add_argument('--disable_kinetic_maps', action='store_true')
+    parser.add_argument('--disable_subtraction_guided_fusion', action='store_true')
+    parser.add_argument('--disable_boundary_head', action='store_true')
+    parser.add_argument('--disable_kinetic_loss', action='store_true')
     args = parser.parse_args()
+    config = load_config(resolve_config_path(args.config))
+    if config:
+        config.setdefault("ablation", {})
+        for key in (
+            "disable_kinetic_maps",
+            "disable_subtraction_guided_fusion",
+            "disable_boundary_head",
+            "disable_kinetic_loss",
+        ):
+            if getattr(args, key, False):
+                config["ablation"][key] = True
+        args = apply_config_to_args(args, config)
 
     os.makedirs(args.output_path, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -263,11 +297,16 @@ def main():
     print(f"Train Size: {len(train_ds)}, Val Size: {len(val_ds)}, Test Size: {len(test_ds)}")
 
     # --- 初始化模型 ---
-    print("Initializing 9-Channel U-Net (ResNet34 Backbone)...")
-    model = get_model(args.model_name).to(device)
+    if config:
+        print(f"Initializing configured model from {args.config}...")
+        model = build_model_from_config(config).to(device)
+    else:
+        print("Initializing legacy SwinHR model...")
+        model = get_model(args.model_name).to(device)
     
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_fn = smp.losses.DiceLoss(mode='binary', from_logits=True)
+    configured_loss_fn = build_loss_from_config(config) if config else None
     bce_loss_fn = nn.BCEWithLogitsLoss()
     scaler = GradScaler('cuda', enabled=device.type == 'cuda')
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
@@ -288,18 +327,21 @@ def main():
             with autocast('cuda', enabled=device.type == 'cuda'):
                 model_output = model(img)
                 preds, output_info = unpack_model_output(model_output)
-                dice_loss = loss_fn(preds, mask)
-                loss = dice_loss
-                if args.bce_weight > 0:
-                    loss = loss + args.bce_weight * bce_loss_fn(preds, mask)
-                if args.boundary_weight > 0:
-                    loss = loss + args.boundary_weight * boundary_loss(preds, mask)
-                if args.separability_weight > 0:
-                    loss = loss + args.separability_weight * hard_negative_separability_loss(model, img, mask)
-                if args.hardneg_weight > 0:
-                    loss = loss + args.hardneg_weight * hard_negative_prediction_loss(preds, img, mask)
-                if args.sdf_weight > 0:
-                    loss = loss + args.sdf_weight * sdf_loss(output_info, mask)
+                if configured_loss_fn is not None:
+                    loss = configured_loss_fn(model_output, mask, images=img)
+                else:
+                    dice_loss = loss_fn(preds, mask)
+                    loss = dice_loss
+                    if args.bce_weight > 0:
+                        loss = loss + args.bce_weight * bce_loss_fn(preds, mask)
+                    if args.boundary_weight > 0:
+                        loss = loss + args.boundary_weight * boundary_loss(preds, mask)
+                    if args.separability_weight > 0:
+                        loss = loss + args.separability_weight * hard_negative_separability_loss(model, img, mask)
+                    if args.hardneg_weight > 0:
+                        loss = loss + args.hardneg_weight * hard_negative_prediction_loss(preds, img, mask)
+                    if args.sdf_weight > 0:
+                        loss = loss + args.sdf_weight * sdf_loss(output_info, mask)
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -311,8 +353,12 @@ def main():
         scheduler.step()
         
         # --- 验证 ---
-        val_dice, val_iou = evaluate(model, val_loader, device, desc="Validating")
-        print(f"Epoch {epoch} | Train Loss: {train_loss/len(train_loader):.4f} | Val Dice: {val_dice:.4f} | Val IoU: {val_iou:.4f}")
+        val_dice, val_iou, val_sens, val_prec = evaluate(model, val_loader, device, desc="Validating")
+        print(
+            f"Epoch {epoch} | Train Loss: {train_loss/len(train_loader):.4f} | "
+            f"Val Dice: {val_dice:.4f} | Val IoU: {val_iou:.4f} | "
+            f"Val Sens: {val_sens:.4f} | Val Prec: {val_prec:.4f}"
+        )
         
         if val_dice > best_dice:
             best_dice = val_dice
@@ -331,12 +377,14 @@ def main():
         model.load_state_dict(torch.load(best_model_path))
         print(f"Loaded Best Model from {best_model_path}")
         
-        test_dice, test_iou = evaluate(model, test_loader, device, desc="Testing")
+        test_dice, test_iou, test_sens, test_prec = evaluate(model, test_loader, device, desc="Testing")
         
         print(f"\n>>>> FINAL TEST RESULTS <<<<")
         print(f"Test Set Size: {len(test_ds)}")
         print(f"Test Dice Score: {test_dice:.4f}")
         print(f"Test IoU Score:  {test_iou:.4f}")
+        print(f"Test Sensitivity: {test_sens:.4f}")
+        print(f"Test Precision:   {test_prec:.4f}")
         print("=======================================")
     else:
         print("Error: Best model file not found!")

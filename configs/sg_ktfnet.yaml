@@ -1,0 +1,43 @@
+train:
+  train_path: "./processed_17ch_dce/train"
+  val_path: "./processed_17ch_dce/val"
+  test_path: "./processed_17ch_dce/test"
+  output_path: "./results_sg_ktfnet"
+  epochs: 100
+  batch_size: 8
+  lr: 0.0003
+  num_workers: 4
+
+model:
+  name: "sg_ktfnet"
+  in_channels: 17
+  base_channels: 32
+  phase_indices:
+    pre: 0
+    post: [1, 2, 3, 4, 5, 6, 7, 8]
+    subtraction: [9, 10, 11, 12, 13, 14, 15, 16]
+  compute_subtraction_if_missing: true
+  use_kinetic_maps: true
+  fusion_mode: "attention"
+  use_boundary_head: true
+  return_dict: true
+  kinetic_eps: 0.000001
+  local_pool_kernel: 7
+  kinetic_clip_value: 5.0
+  kinetic_normalize: "per_image"
+
+loss:
+  name: "sg_ktfnet_loss"
+  bce_weight: 0.5
+  lambda_boundary: 0.2
+  lambda_kinetic: 0.1
+  kinetic_margin: 0.05
+  boundary_thickness: 3
+  peritumor_ring_size: 5
+  kinetic_eps: 0.000001
+
+ablation:
+  disable_kinetic_maps: false
+  disable_subtraction_guided_fusion: false
+  disable_boundary_head: false
+  disable_kinetic_loss: false

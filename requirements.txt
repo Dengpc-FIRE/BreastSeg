@@ -1,8 +1,9 @@
 torch
 torchvision
+segmentation-models-pytorch
+monai
+PyYAML
 einops
 numpy
 tqdm
 opencv-python
-numpy
-tqdm
