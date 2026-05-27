@@ -411,6 +411,21 @@ def main():
                         loss = loss + args.hardneg_weight * hard_negative_prediction_loss(preds, img, mask)
                     if args.sdf_weight > 0:
                         loss = loss + args.sdf_weight * sdf_loss(output_info, mask)
+
+            if not torch.isfinite(loss):
+                with torch.no_grad():
+                    pred_min = preds.detach().float().amin().item()
+                    pred_max = preds.detach().float().amax().item()
+                    mask_sum = mask.detach().float().sum().item()
+                    img_min = img.detach().float().amin().item()
+                    img_max = img.detach().float().amax().item()
+                raise FloatingPointError(
+                    "Non-finite training loss detected. "
+                    f"loss={loss.detach().float().item()}, "
+                    f"pred_range=({pred_min:.4g},{pred_max:.4g}), "
+                    f"img_range=({img_min:.4g},{img_max:.4g}), "
+                    f"mask_sum={mask_sum:.4g}"
+                )
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)

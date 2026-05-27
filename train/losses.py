@@ -130,7 +130,7 @@ class SGKTFNetLoss(nn.Module):
                 info.get("kinetic_maps"),
                 target,
             )
-        return torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
+        return loss
 
 
 def attention_smoothness_loss(attention_maps) -> torch.Tensor:
@@ -191,7 +191,7 @@ class KPTANetLoss(nn.Module):
             smooth = attention_smoothness_loss(attention_maps) if attention_maps else seg_logits.new_tensor(0.0)
             loss = loss + self.lambda_attention_smooth * smooth
 
-        return torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
+        return loss
 
 
 class KPTA25DNetLoss(KPTANetLoss):

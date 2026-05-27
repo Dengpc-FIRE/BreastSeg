@@ -496,9 +496,10 @@ class KPTA25DNet(nn.Module):
         dec = self.up0(dec, skips[0])
 
         coarse_logits = self.coarse_head(dec)
-        coarse_prob = torch.sigmoid(coarse_logits)
-        uncertainty_map = (1.0 - torch.abs(2.0 * coarse_prob - 1.0)).clamp(1e-4, 1.0 - 1e-4)
-        uncertainty_logits = torch.logit(uncertainty_map)
+        coarse_prob = torch.sigmoid(coarse_logits.float())
+        uncertainty_prob = (1.0 - torch.abs(2.0 * coarse_prob - 1.0)).clamp(1e-3, 1.0 - 1e-3)
+        uncertainty_logits = torch.logit(uncertainty_prob).to(dtype=coarse_logits.dtype)
+        uncertainty_map = uncertainty_prob.to(dtype=dec.dtype)
         if self.disable_uncertainty:
             uncertainty_logits = torch.zeros_like(uncertainty_logits)
             uncertainty_map = torch.zeros_like(uncertainty_map)
