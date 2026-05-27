@@ -189,62 +189,191 @@ class PixelWisePhaseAttention25D(nn.Module):
         return (phase_feats * attn).sum(dim=1), attn
 
 
-class SpatialPositionEncoding(nn.Module):
-    def __init__(self, channels: int) -> None:
+def _window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor:
+    b, h, w, c = x.shape
+    x = x.view(b, h // window_size, window_size, w // window_size, window_size, c)
+    return x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size * window_size, c)
+
+
+def _window_reverse(windows: torch.Tensor, window_size: int, h: int, w: int, b: int) -> torch.Tensor:
+    x = windows.view(b, h // window_size, w // window_size, window_size, window_size, -1)
+    return x.permute(0, 1, 3, 2, 4, 5).contiguous().view(b, h, w, -1)
+
+
+class WindowSelfAttention(nn.Module):
+    def __init__(self, channels: int, window_size: int = 7, num_heads: int = 4) -> None:
         super().__init__()
-        self.proj = nn.Conv2d(2, channels, kernel_size=1)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        b, _, h, w = x.shape
-        yy = torch.linspace(-1.0, 1.0, h, device=x.device, dtype=x.dtype)
-        xx = torch.linspace(-1.0, 1.0, w, device=x.device, dtype=x.dtype)
-        try:
-            grid_y, grid_x = torch.meshgrid(yy, xx, indexing="ij")
-        except TypeError:
-            grid_y, grid_x = torch.meshgrid(yy, xx)
-        grid = torch.stack([grid_y, grid_x], dim=0).unsqueeze(0).expand(b, -1, -1, -1)
-        return x + self.proj(grid)
-
-
-class LightweightTransformerBottleneck(nn.Module):
-    def __init__(self, channels: int, depth: int = 2, num_heads: int = 4, disabled: bool = False) -> None:
-        super().__init__()
-        self.disabled = disabled
-        self.position_encoding = SpatialPositionEncoding(channels)
         heads = max(1, min(num_heads, channels))
         while channels % heads != 0 and heads > 1:
             heads -= 1
-        layer = nn.TransformerEncoderLayer(
-            d_model=channels,
-            nhead=heads,
-            dim_feedforward=channels * 4,
-            dropout=0.0,
-            batch_first=True,
-            activation="gelu",
+        self.channels = channels
+        self.window_size = window_size
+        self.num_heads = heads
+        self.head_dim = channels // heads
+        self.scale = self.head_dim ** -0.5
+        self.qkv = nn.Linear(channels, channels * 3, bias=True)
+        self.proj = nn.Linear(channels, channels)
+
+        coords_h = torch.arange(window_size)
+        coords_w = torch.arange(window_size)
+        try:
+            coords = torch.stack(torch.meshgrid(coords_h, coords_w, indexing="ij"))
+        except TypeError:
+            coords = torch.stack(torch.meshgrid(coords_h, coords_w))
+        coords_flatten = torch.flatten(coords, 1)
+        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]
+        relative_coords = relative_coords.permute(1, 2, 0).contiguous()
+        relative_coords[:, :, 0] += window_size - 1
+        relative_coords[:, :, 1] += window_size - 1
+        relative_coords[:, :, 0] *= 2 * window_size - 1
+        relative_position_index = relative_coords.sum(-1)
+        self.register_buffer("relative_position_index", relative_position_index, persistent=False)
+        self.relative_position_bias_table = nn.Parameter(
+            torch.zeros((2 * window_size - 1) * (2 * window_size - 1), heads)
         )
-        self.encoder = nn.TransformerEncoder(layer, num_layers=max(1, depth))
+        nn.init.trunc_normal_(self.relative_position_bias_table, std=0.02)
+
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        b_windows, n, c = x.shape
+        qkv = self.qkv(x).reshape(b_windows, n, 3, self.num_heads, self.head_dim)
+        qkv = qkv.permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        attn = (q * self.scale) @ k.transpose(-2, -1)
+        bias = self.relative_position_bias_table[self.relative_position_index.reshape(-1)]
+        bias = bias.reshape(self.window_size * self.window_size, self.window_size * self.window_size, -1)
+        attn = attn + bias.permute(2, 0, 1).unsqueeze(0)
+        if mask is not None:
+            num_windows = mask.shape[0]
+            attn = attn.view(b_windows // num_windows, num_windows, self.num_heads, n, n)
+            attn = attn + mask.unsqueeze(0).unsqueeze(2)
+            attn = attn.view(-1, self.num_heads, n, n)
+        attn = torch.softmax(attn, dim=-1)
+        out = (attn @ v).transpose(1, 2).reshape(b_windows, n, c)
+        return self.proj(out)
+
+
+class SwinWindowBlock(nn.Module):
+    def __init__(
+        self,
+        channels: int,
+        window_size: int = 7,
+        num_heads: int = 4,
+        shift_size: int = 0,
+        mlp_ratio: float = 4.0,
+    ) -> None:
+        super().__init__()
+        self.window_size = window_size
+        self.shift_size = shift_size
+        self.norm1 = nn.LayerNorm(channels)
+        self.attn = WindowSelfAttention(channels, window_size=window_size, num_heads=num_heads)
+        hidden = int(channels * mlp_ratio)
+        self.norm2 = nn.LayerNorm(channels)
+        self.mlp = nn.Sequential(
+            nn.Linear(channels, hidden),
+            nn.GELU(),
+            nn.Linear(hidden, channels),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, c, h, w = x.shape
+        shortcut = x
+        x = x.permute(0, 2, 3, 1).contiguous()
+        pad_h = (self.window_size - h % self.window_size) % self.window_size
+        pad_w = (self.window_size - w % self.window_size) % self.window_size
+        if pad_h or pad_w:
+            x = F.pad(x, (0, 0, 0, pad_w, 0, pad_h))
+        hp, wp = x.shape[1], x.shape[2]
+        shift = self.shift_size if min(hp, wp) > self.window_size else 0
+        if shift > 0:
+            x = torch.roll(x, shifts=(-shift, -shift), dims=(1, 2))
+        attn_mask = self._shifted_window_mask(hp, wp, x.device, x.dtype) if shift > 0 else None
+        windows = _window_partition(self.norm1(x), self.window_size)
+        windows = self.attn(windows, mask=attn_mask)
+        x = _window_reverse(windows, self.window_size, hp, wp, b)
+        if shift > 0:
+            x = torch.roll(x, shifts=(shift, shift), dims=(1, 2))
+        if pad_h or pad_w:
+            x = x[:, :h, :w, :].contiguous()
+        x = shortcut + x.permute(0, 3, 1, 2).contiguous()
+
+        shortcut = x
+        x = x.permute(0, 2, 3, 1).contiguous()
+        x = self.mlp(self.norm2(x))
+        return shortcut + x.permute(0, 3, 1, 2).contiguous()
+
+    def _shifted_window_mask(self, height: int, width: int, device, dtype) -> torch.Tensor:
+        img_mask = torch.zeros((1, height, width, 1), device=device, dtype=dtype)
+        h_slices = (
+            slice(0, -self.window_size),
+            slice(-self.window_size, -self.shift_size),
+            slice(-self.shift_size, None),
+        )
+        w_slices = (
+            slice(0, -self.window_size),
+            slice(-self.window_size, -self.shift_size),
+            slice(-self.shift_size, None),
+        )
+        cnt = 0
+        for h_slice in h_slices:
+            for w_slice in w_slices:
+                img_mask[:, h_slice, w_slice, :] = cnt
+                cnt += 1
+        mask_windows = _window_partition(img_mask, self.window_size).squeeze(-1)
+        attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+        return attn_mask.masked_fill(attn_mask != 0, -100.0).masked_fill(attn_mask == 0, 0.0)
+
+
+class LightweightSwinBottleneck(nn.Module):
+    def __init__(
+        self,
+        channels: int,
+        depth: int = 2,
+        num_heads: int = 4,
+        window_size: int = 7,
+        disabled: bool = False,
+    ) -> None:
+        super().__init__()
+        self.disabled = disabled
+        window_size = max(2, int(window_size))
+        self.blocks = nn.ModuleList(
+            [
+                SwinWindowBlock(
+                    channels,
+                    window_size=window_size,
+                    num_heads=num_heads,
+                    shift_size=0 if idx % 2 == 0 else window_size // 2,
+                )
+                for idx in range(max(1, depth))
+            ]
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.disabled:
             return x
-        b, c, h, w = x.shape
-        x = self.position_encoding(x)
-        tokens = x.flatten(2).transpose(1, 2)
-        tokens = self.encoder(tokens)
-        return tokens.transpose(1, 2).reshape(b, c, h, w)
+        for block in self.blocks:
+            x = block(x)
+        return x
 
 
 class HybridEncoder25D(nn.Module):
-    def __init__(self, channels: int, transformer_depth: int = 2, num_heads: int = 4, disable_transformer: bool = False) -> None:
+    def __init__(
+        self,
+        channels: int,
+        transformer_depth: int = 2,
+        num_heads: int = 4,
+        window_size: int = 7,
+        disable_transformer: bool = False,
+    ) -> None:
         super().__init__()
         self.down1 = ConvBlock(channels, channels * 2)
         self.down2 = ConvBlock(channels * 2, channels * 4)
         self.down3 = ConvBlock(channels * 4, channels * 8)
         self.bottleneck = ConvBlock(channels * 8, channels * 16)
-        self.transformer = LightweightTransformerBottleneck(
+        self.transformer = LightweightSwinBottleneck(
             channels * 16,
             depth=transformer_depth,
             num_heads=num_heads,
+            window_size=window_size,
             disabled=disable_transformer,
         )
         self.pool = nn.MaxPool2d(2)
@@ -331,6 +460,7 @@ class KPTA25DNet(nn.Module):
             base_channels,
             transformer_depth=int(hybrid_encoder.get("transformer_depth", 2)),
             num_heads=int(hybrid_encoder.get("num_heads", 4)),
+            window_size=int(hybrid_encoder.get("window_size", 7)),
             disable_transformer=self.disable_transformer,
         )
         channels = [base_channels, base_channels * 2, base_channels * 4, base_channels * 8, base_channels * 16]
