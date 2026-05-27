@@ -72,6 +72,50 @@ class BreastDM9ChDataset(Dataset):
 
         return image, mask_tensor, file_name
 
+
+class BreastDM25DDataset(Dataset):
+    def __init__(self, data_dir, gt_dir, img_size=256):
+        self.data_dir = data_dir
+        self.gt_dir = gt_dir
+        self.img_size = img_size
+        if os.path.exists(data_dir):
+            self.ids = [f for f in os.listdir(data_dir) if f.endswith('.npy')]
+        else:
+            self.ids = []
+            print(f"[Warning] Directory not found: {data_dir}")
+
+    def __len__(self):
+        return len(self.ids)
+
+    def __getitem__(self, i):
+        file_name = self.ids[i]
+        data = np.load(os.path.join(self.data_dir, file_name))
+        if data.ndim != 4:
+            raise ValueError(f"Expect 2.5D .npy with shape [K,T,H,W], got {data.shape} for {file_name}")
+        image = torch.from_numpy(data.astype(np.float32))
+
+        mask_name = file_name.replace('.npy', '.png')
+        gt_path = os.path.join(self.gt_dir, mask_name)
+        if os.path.exists(gt_path):
+            mask = cv2.imread(gt_path, cv2.IMREAD_GRAYSCALE)
+            if mask is None:
+                mask = np.zeros((data.shape[-2], data.shape[-1]), dtype=np.uint8)
+        else:
+            mask = np.zeros((data.shape[-2], data.shape[-1]), dtype=np.uint8)
+        if mask.shape != (data.shape[-2], data.shape[-1]):
+            mask = cv2.resize(mask, (data.shape[-1], data.shape[-2]), interpolation=cv2.INTER_NEAREST)
+        mask = mask.astype(np.float32) / 255.0
+        mask[mask > 0.5] = 1.0
+        return image, torch.from_numpy(np.expand_dims(mask, axis=0)).float(), file_name
+
+
+def build_dataset(split_path, dataset_type="breastdm_2d", img_size=256):
+    data_dir = os.path.join(split_path, 'data')
+    gt_dir = os.path.join(split_path, 'GT')
+    if dataset_type in {"breastdm_25d", "25d", "kpta_25d"}:
+        return BreastDM25DDataset(data_dir, gt_dir, img_size=img_size)
+    return BreastDM9ChDataset(data_dir, gt_dir, img_size=img_size)
+
 # ==========================================
 # 2. 模型：标准 U-Net 但改为 9 通道输入
 # ==========================================
@@ -267,6 +311,12 @@ def main():
     parser.add_argument('--disable_uncertainty_refinement', action='store_true')
     parser.add_argument('--disable_uncertainty_head', action='store_true')
     parser.add_argument('--disable_attention_smooth_loss', action='store_true')
+    parser.add_argument('--disable_phase_dropout', action='store_true')
+    parser.add_argument('--disable_kinetic_prior_encoder', action='store_true')
+    parser.add_argument('--disable_kinetic_fusion', action='store_true')
+    parser.add_argument('--disable_temporal_contrastive_loss', action='store_true')
+    parser.add_argument('--disable_slice_context', action='store_true')
+    parser.add_argument('--disable_transformer_bottleneck', action='store_true')
     args = parser.parse_args()
     config = load_config(resolve_config_path(args.config))
     if config:
@@ -281,6 +331,12 @@ def main():
             "disable_uncertainty_refinement",
             "disable_uncertainty_head",
             "disable_attention_smooth_loss",
+            "disable_phase_dropout",
+            "disable_kinetic_prior_encoder",
+            "disable_kinetic_fusion",
+            "disable_temporal_contrastive_loss",
+            "disable_slice_context",
+            "disable_transformer_bottleneck",
         ):
             if getattr(args, key, False):
                 config["ablation"][key] = True
@@ -291,9 +347,12 @@ def main():
     
     # --- 准备数据 ---
     print("Loading Datasets...")
-    train_ds = BreastDM9ChDataset(os.path.join(args.train_path, 'data'), os.path.join(args.train_path, 'GT'))
-    val_ds = BreastDM9ChDataset(os.path.join(args.val_path, 'data'), os.path.join(args.val_path, 'GT'))
-    test_ds = BreastDM9ChDataset(os.path.join(args.test_path, 'data'), os.path.join(args.test_path, 'GT'))
+    dataset_cfg = config.get("dataset", {}) if config else {}
+    dataset_type = dataset_cfg.get("type", "breastdm_2d")
+    img_size = int(dataset_cfg.get("img_size", 256))
+    train_ds = build_dataset(args.train_path, dataset_type=dataset_type, img_size=img_size)
+    val_ds = build_dataset(args.val_path, dataset_type=dataset_type, img_size=img_size)
+    test_ds = build_dataset(args.test_path, dataset_type=dataset_type, img_size=img_size)
     
     if len(train_ds) == 0:
         print("Error: No training data found. Check your paths.")

@@ -36,6 +36,10 @@ def build_model_from_config(config: Dict[str, Any]):
         from model.kpta_net import KPTANet
 
         return KPTANet(**model_cfg)
+    if name in {"kpta_25d_net", "kpta25dnet", "KPTA25DNet", "sa_kpta_net"}:
+        from model.kpta_25d_net import KPTA25DNet
+
+        return KPTA25DNet(**model_cfg)
     if name in {"kpr_net", "kprnet", "KPRNet"}:
         from model.kpr_net import KPRNet
 
@@ -68,6 +72,10 @@ def build_loss_from_config(config: Dict[str, Any]):
         from train.losses import KPTANetLoss
 
         return KPTANetLoss(**loss_cfg)
+    if name in {"kpta_25d_loss", "kpta25d_loss", "KPTA25DNetLoss"}:
+        from train.losses import KPTA25DNetLoss
+
+        return KPTA25DNetLoss(**loss_cfg)
     if name in {"kpr_net_loss", "kprnet_loss", "KPRNetLoss"}:
         from train.losses import KPRNetLoss
 

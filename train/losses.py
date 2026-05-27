@@ -194,6 +194,17 @@ class KPTANetLoss(nn.Module):
         return torch.nan_to_num(loss, nan=0.0, posinf=0.0, neginf=0.0)
 
 
+class KPTA25DNetLoss(KPTANetLoss):
+    """Loss for SA-KPTA-Net.
+
+    It intentionally reuses KPTA-Net's segmentation, boundary, uncertainty,
+    and phase-attention smoothness terms because the 2.5D model returns the
+    same training heads while preserving slice-aware inputs internally.
+    """
+
+    pass
+
+
 class TemporalContrastiveLoss(nn.Module):
     def __init__(self, temperature: float = 0.1, min_tumor_pixels: int = 20) -> None:
         super().__init__()

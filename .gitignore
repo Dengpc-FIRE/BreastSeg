@@ -13,6 +13,7 @@ final_evaluation_results/
 processed_9ch_sub2label/
 processed_9ch_vibrant_label/
 processed_17ch_dce/
+processed_25d_dce/
 
 # 模型权重文件（大文件）
 *.pth
