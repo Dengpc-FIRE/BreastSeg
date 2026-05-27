@@ -3,9 +3,9 @@ train:
   val_path: "./processed_25d_dce/val"
   test_path: "./processed_25d_dce/test"
   output_path: "./results_kpta_25d_net"
-  epochs: 100
+  epochs: 400
   batch_size: 4
-  lr: 0.0003
+  lr: 0.0001
   num_workers: 4
 
 dataset:
