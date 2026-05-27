@@ -50,8 +50,13 @@ class BreastDM9ChDataset(Dataset):
         data = np.load(data_path) 
         
         # 你的 NPY 是 (256, 256, 9) -> 转置为 (9, 256, 256) 给 PyTorch
-        image = data.astype(np.float32) / 255.0
-        image = torch.from_numpy(image.transpose(2, 0, 1)) # [9, H, W]
+        if data.ndim == 4:
+            image = torch.from_numpy(data.astype(np.float32))  # [K, T, H, W]
+        elif data.ndim == 3:
+            image = data.astype(np.float32) / 255.0
+            image = torch.from_numpy(image.transpose(2, 0, 1)) # [C, H, W]
+        else:
+            raise ValueError(f"Unsupported .npy shape {data.shape} for {file_name}")
 
         mask_name = file_name.replace('.npy', '.png')
         gt_path = os.path.join(self.gt_dir, mask_name)
@@ -112,8 +117,15 @@ class BreastDM25DDataset(Dataset):
 def build_dataset(split_path, dataset_type="breastdm_2d", img_size=256):
     data_dir = os.path.join(split_path, 'data')
     gt_dir = os.path.join(split_path, 'GT')
-    if dataset_type in {"breastdm_25d", "25d", "kpta_25d"}:
+    sample_shape = None
+    if os.path.exists(data_dir):
+        sample_files = [f for f in os.listdir(data_dir) if f.endswith('.npy')]
+        if sample_files:
+            sample_shape = np.load(os.path.join(data_dir, sample_files[0]), mmap_mode='r').shape
+    if dataset_type in {"breastdm_25d", "25d", "kpta_25d"} or (sample_shape is not None and len(sample_shape) == 4):
+        print(f"[Dataset] BreastDM25DDataset split={split_path}, sample_shape={sample_shape}")
         return BreastDM25DDataset(data_dir, gt_dir, img_size=img_size)
+    print(f"[Dataset] BreastDM9ChDataset split={split_path}, sample_shape={sample_shape}")
     return BreastDM9ChDataset(data_dir, gt_dir, img_size=img_size)
 
 # ==========================================
