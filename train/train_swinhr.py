@@ -117,7 +117,13 @@ class BreastDM25DDataset(Dataset):
 
     每个样本：
         image: [K,T,H,W]，K 是相邻切片，T 是 DCE phase。
+               默认不是 17 个切片，而是 K=3 个切片、T=17 个 phase：
+               【3,17,H,W】=【z-1/z/z+1, pre+post1..8+sub1..8, H, W】。
         mask : [1,H,W]，只监督中心切片。
+
+    DataLoader 拼 batch 后：
+        image: 【K,T,H,W】->【B,K,T,H,W】，例如【3,17,H,W】->【B,3,17,H,W】。
+        mask : 【1,H,W】->【B,1,H,W】。
 
     该 Dataset 对应 SA-KPTA-Net / KPTA-2.5DNet。
     """
@@ -140,12 +146,14 @@ class BreastDM25DDataset(Dataset):
         """读取一个 2.5D 样本，不在 Dataset 内做强度归一化。"""
         # 文件名。
         file_name = self.ids[i]
-        # 读取 [K,T,H,W]。
+        # 从 processed_25d_dce 读取 2.5D 输入：【K,T,H,W】。
+        # 默认 K=3 是相邻切片数，T=17 是 DCE phase/channel 数。
         data = np.load(os.path.join(self.data_dir, file_name))
         if data.ndim != 4:
             # 方案 D 必须是 4D 输入。
             raise ValueError(f"Expect 2.5D .npy with shape [K,T,H,W], got {data.shape} for {file_name}")
-        # 保留原始强度，模型内部先构造 kinetic maps 再归一化。
+        # 保留原始强度，模型内部先构造 kinetic maps 再归一化：
+        # numpy【K,T,H,W】-> tensor【K,T,H,W】。
         image = torch.from_numpy(data.astype(np.float32))
 
         # mask 文件与 data 同名。
@@ -167,7 +175,8 @@ class BreastDM25DDataset(Dataset):
         mask = mask.astype(np.float32) / 255.0
         # 二值化。
         mask[mask > 0.5] = 1.0
-        # 返回 image、mask、文件名。
+        # 返回 image、mask、文件名：
+        # image【K,T,H,W】，mask【1,H,W】；进入 DataLoader 后变为 image【B,K,T,H,W】，mask【B,1,H,W】。
         return image, torch.from_numpy(np.expand_dims(mask, axis=0)).float(), file_name
 
 

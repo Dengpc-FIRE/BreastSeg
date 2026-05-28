@@ -9,20 +9,24 @@
 
 因此输入张量是 [B,K,T,H,W]：
     B 是 batch size。
-    K 是相邻切片数量。
-    T 是 DCE 多时相数量。
+    K 是相邻切片数量，默认 K=3，即 [z-1, z, z+1]。
+    T 是 DCE 多时相数量，默认 T=17，即 1 个 pre + 8 个 post + 8 个 sub。
     H/W 是二维切片空间尺寸。
 
+注意：当前默认输入不是“17 个切片”，而是“3 个相邻切片 × 17 个 DCE phase”。
+也就是单个样本维度为 [3,17,H,W]，DataLoader 拼 batch 后是 [B,3,17,H,W]。
+
 整体结构：
-    [B,K,T,H,W]
-        -> Slice-wise CNN Stem：逐切片逐时相共享 CNN 提取局部纹理。
-        -> Slice Context Aggregation：融合 z-1/z/z+1 的上下文。
-        -> Pseudo-Kinetic Map Branch：从 SUB/post 构造增强动力学先验。
-        -> Pixel-wise Phase Attention：每个像素自适应选择有效 DCE phase。
-        -> CNN Encoder + Swin Window Attention Bottleneck：局部 CNN + 窗口注意力语义建模。
-        -> U-Net Decoder：逐级恢复分辨率。
-        -> Uncertainty-guided Boundary Refinement：利用不确定性细化边界。
-        -> 输出中心切片肿瘤 mask：[B,1,H,W]。
+    原始输入                 ：【B,K,T,H,W】
+        -> kinetic builder   ：【B,K,T,H,W】->【B,K,M,H,W】
+        -> Slice-wise CNN    ：【B,K,T,H,W】->【B,K,T,C,H,W】
+        -> Slice Context     ：【B,K,T,C,H,W】->【B,T,C,H,W】
+        -> Kinetic Branch    ：【B,K,M,H,W】->【B,C,H,W】
+        -> Phase Attention   ：【B,T,C,H,W】+【B,C,H,W】->【B,C,H,W】
+        -> Hybrid Encoder    ：【B,C,H,W】-> 多尺度 skip features
+        -> U-Net Decoder     ：多尺度 skip features ->【B,C,H,W】
+        -> Boundary Refine   ：【B,C,H,W】->【B,C,H,W】
+        -> 输出中心切片 mask ：【B,1,H,W】
 """
 
 from typing import Dict, List, Optional, Sequence
@@ -114,11 +118,11 @@ class KineticMapBuilder25D(nn.Module):
             如果 sub 缺失但 post 存在，则计算 sub = post - pre。
             如果两者都缺失，则使用零 subtraction，保证模型不崩溃。
         """
-        # 取出 pre-contrast 图像，保持 phase 维度为 1。
+        # 从 T 维取出 pre-contrast：【B,K,T,H,W】->【B,K,1,H,W】。
         pre = x[:, :, self.phase_indices.pre : self.phase_indices.pre + 1]
-        # 根据配置读取 post phase；如果索引越界，_select 会自动忽略。
+        # 根据配置读取 post phase：【B,K,T,H,W】->【B,K,N_post,H,W】；如果索引越界，_select 会自动忽略。
         post = self._select(x, self.phase_indices.post)
-        # 根据配置读取 subtraction phase；BreastDM 中优先使用真实 SUB。
+        # 根据配置读取 subtraction phase：【B,K,T,H,W】->【B,K,N_sub,H,W】；BreastDM 中优先使用真实 SUB。
         sub = self._select(x, self.phase_indices.subtraction)
         # 没有 post 但有 sub 时，用 pre + sub 近似 post。
         if post is None and sub is not None:
@@ -188,32 +192,33 @@ class KineticMapBuilder25D(nn.Module):
         # 先拆出 pre/post/sub，后续所有 kinetic map 都基于这三组构造。
         pre, post, sub = self.split(x.float())
         # maps 用来收集不同类型的 kinetic map，最后在 M 维拼接。
+        # 每个元素都保持 2.5D 结构：【B,K,m_i,H,W】。
         maps = []
         for name in self.kinetic_maps:
             if name == "sub_stack":
-                # 直接使用 SUB 序列，保留每个增强 phase。
+                # 直接使用 SUB 序列，保留每个增强 phase：【B,K,N_sub,H,W】。
                 maps.append(sub)
             elif name == "peak_enhancement":
-                # 峰值增强：反映某个位置在所有减影 phase 中的最大响应。
+                # 峰值增强：沿 phase 维取最大值，【B,K,N_sub,H,W】->【B,K,1,H,W】。
                 maps.append(sub.amax(dim=2, keepdim=True))
             elif name == "mean_enhancement":
-                # 平均增强：反映整体增强水平，降低单个 phase 噪声影响。
+                # 平均增强：沿 phase 维取平均值，【B,K,N_sub,H,W】->【B,K,1,H,W】。
                 maps.append(sub.mean(dim=2, keepdim=True))
             elif name == "temporal_std":
-                # 时间变化：post 序列标准差，捕捉动态变化强弱。
+                # 时间变化：post 序列标准差，【B,K,N_post,H,W】->【B,K,1,H,W】。
                 maps.append(post.std(dim=2, keepdim=True, unbiased=False))
             elif name == "early_enhancement":
-                # 早期增强：肿瘤常有快速 wash-in，早期 SUB 有临床意义。
+                # 早期增强：取第一个 SUB phase，【B,K,N_sub,H,W】->【B,K,1,H,W】。
                 maps.append(sub[:, :, :1])
             elif name == "late_enhancement":
-                # 晚期增强：帮助区分持续强化、平台或 wash-out 模式。
+                # 晚期增强：取最后一个 SUB phase，【B,K,N_sub,H,W】->【B,K,1,H,W】。
                 maps.append(sub[:, :, -1:])
             elif name == "relative_enhancement":
-                # 相对增强：用 pre 强度归一化 SUB，减少基础强度差异影响。
+                # 相对增强：利用 pre 广播归一化 SUB，【B,K,N_sub,H,W】/【B,K,1,H,W】->【B,K,N_sub,H,W】。
                 maps.append(sub / (pre.abs() + self.eps))
             else:
                 raise ValueError(f"Unknown 2.5D kinetic map: {name}")
-        # 如果 kinetic map 被 ablation 关闭，则给一个零通道占位，保证分支可运行。
+        # 如果 kinetic map 被 ablation 关闭，则给一个零通道占位：【B,K,1,H,W】，保证分支可运行。
         kinetic = torch.cat(maps, dim=2) if maps else x.new_zeros((x.shape[0], x.shape[1], 1, x.shape[3], x.shape[4]))
         # 可选截断极端增强值，避免异常像素影响训练。
         if self.clip_value is not None and self.clip_value > 0:
@@ -251,11 +256,13 @@ class SliceWiseCNNStem(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """把 [B,K,T,H,W] 编码为 [B,K,T,C,H,W]。"""
-        # 记录输入维度，后面 reshape 回显式 K/T 结构。
+        # 记录输入维度：【B,K,T,H,W】中的 B/K/T/H/W。
         b, k, t, h, w = x.shape
-        # 把 B/K/T 合并成 batch 维，让共享 CNN 一次性处理所有单通道图。
+        # 把 B/K/T 合并成 batch 维，让共享 CNN 一次性处理所有单通道图：
+        # 【B,K,T,H,W】->【B*K*T,1,H,W】。
         feat = self.stem(x.reshape(b * k * t, 1, h, w))
-        # 恢复 [B,K,T,C,H,W]，保留切片维和时相维的语义。
+        # CNN stem 输出：【B*K*T,C,H,W】。
+        # 恢复显式 2.5D 结构：【B*K*T,C,H,W】->【B,K,T,C,H,W】。
         return feat.reshape(b, k, t, feat.shape[1], feat.shape[2], feat.shape[3])
 
 
@@ -278,24 +285,27 @@ class SliceContextAggregation(nn.Module):
 
     def forward(self, x: torch.Tensor):
         """融合 K 个切片，同时保留 T 个 DCE phase。"""
-        # 输入 x: [B,K,T,C,H,W]；输出 aggregated: [B,T,C,H,W]。
+        # 输入 x:【B,K,T,C,H,W】；输出 aggregated:【B,T,C,H,W】。
         if self.disabled or x.shape[1] == 1:
-            # 关闭 slice context 时，直接取中心切片作为输出。
+            # 关闭 slice context 时，直接取中心切片作为输出：【B,K,T,C,H,W】->【B,T,C,H,W】。
             center = x[:, x.shape[1] // 2]
-            # 为了可视化/调试，仍返回一个均匀 slice attention map。
+            # 为了可视化/调试，仍返回一个均匀 slice attention map：【B,K,T,1,H,W】。
             attn = x.new_ones((x.shape[0], x.shape[1], x.shape[2], 1, x.shape[-2], x.shape[-1])) / float(x.shape[1])
             return center, attn
         # 展开维度，准备对每个 slice/phase 的特征计算 score。
         b, k, t, c, h, w = x.shape
-        # 对 [B*K*T,C,H,W] 做 1x1 conv，然后恢复 [B,K,T,1,H,W]。
+        # 对每个 slice/phase 的 C 维特征做 1x1 conv：
+        # 【B,K,T,C,H,W】->【B*K*T,C,H,W】->【B*K*T,1,H,W】->【B,K,T,1,H,W】。
         scores = self.score(x.reshape(b * k * t, c, h, w)).reshape(b, k, t, 1, h, w)
-        # 在 K 维做 softmax，得到每个像素位置对不同切片的权重。
+        # 在 K 维做 softmax，得到每个像素位置对不同切片的权重：【B,K,T,1,H,W】。
         weights = torch.softmax(scores, dim=1)
-        # 用 slice attention 对相邻切片特征加权求和。
+        # 用 slice attention 对相邻切片特征加权求和：
+        # 【B,K,T,C,H,W】*【B,K,T,1,H,W】-> sum(K) ->【B,T,C,H,W】。
         aggregated = (x * weights).sum(dim=1)
         if self.use_center_residual:
-            # 把聚合结果和中心切片平均，保证输出仍聚焦中心 slice 的 mask。
+            # 取中心切片特征：【B,K,T,C,H,W】->【B,T,C,H,W】。
             center = x[:, k // 2]
+            # 把聚合结果和中心切片平均，保证输出仍聚焦中心 slice 的 mask：【B,T,C,H,W】->【B,T,C,H,W】。
             aggregated = 0.5 * (aggregated + center)
         return aggregated, weights
 
@@ -316,15 +326,17 @@ class KineticPriorBranch25D(nn.Module):
 
     def forward(self, kinetic_maps: torch.Tensor):
         """返回中心切片感知的 kinetic feature 和 kinetic slice attention。"""
-        # kinetic_maps: [B,K,M,H,W]。
+        # kinetic_maps:【B,K,M,H,W】，M 是 kinetic map 通道数。
         b, k, m, h, w = kinetic_maps.shape
-        # 合并 B/K，用 CNN 编码每个切片的 kinetic maps。
+        # 合并 B/K，用 CNN 编码每个切片的 kinetic maps：
+        # 【B,K,M,H,W】->【B*K,M,H,W】->【B*K,C,H,W】。
         feat = self.encoder(kinetic_maps.reshape(b * k, m, h, w))
-        # 恢复为 [B,K,1,C,H,W]，这里 phase 维设为 1，复用 SliceContextAggregation。
+        # 恢复为带伪 phase 维的结构：【B*K,C,H,W】->【B,K,1,C,H,W】。
+        # 这里 T=1 是为了复用 SliceContextAggregation 的 slice 融合逻辑。
         feat = feat.reshape(b, k, 1, feat.shape[1], feat.shape[2], feat.shape[3])
-        # 聚合 K 个切片上的 kinetic feature。
+        # 聚合 K 个切片上的 kinetic feature：【B,K,1,C,H,W】->【B,1,C,H,W】。
         aggregated, attn = self.slice_agg(feat)
-        # 去掉伪 phase 维，输出 [B,C,H,W]。
+        # 去掉伪 phase 维，输出动力学先验特征：【B,1,C,H,W】->【B,C,H,W】。
         return aggregated[:, 0], attn
 
 
@@ -354,39 +366,45 @@ class PixelWisePhaseAttention25D(nn.Module):
 
     def forward(self, phase_feats: torch.Tensor, kinetic_feat: torch.Tensor):
         """把 [B,T,C,H,W] phase feature 融合为 [B,C,H,W]。"""
-        # phase_feats 表示每个 DCE phase 的中心切片上下文特征。
+        # phase_feats 表示每个 DCE phase 的中心切片上下文特征：【B,T,C,H,W】。
         b, t, c, h, w = phase_feats.shape
         if self.disabled or t == 1:
-            # 关闭 attention 或只有一个 phase 时，使用均匀权重。
+            # 关闭 attention 或只有一个 phase 时，使用均匀权重：【B,T,1,H,W】。
             attn = phase_feats.new_full((b, t, 1, h, w), 1.0 / float(t))
+            # 均值融合 phase：【B,T,C,H,W】->【B,C,H,W】。
             return phase_feats.mean(dim=1), attn
-        # 将 kinetic feature 扩展到每个 phase，与 phase feature 对齐。
+        # 将 kinetic feature 扩展到每个 phase，与 phase feature 对齐：
+        # 【B,C,H,W】->【B,1,C,H,W】->【B,T,C,H,W】。
         kinetic = kinetic_feat.unsqueeze(1).expand(-1, t, -1, -1, -1)
-        # 拼接 phase feature 与 kinetic feature，逐 phase 共享打分网络。
+        # 拼接 phase feature 与 kinetic feature：
+        # 【B,T,C,H,W】+【B,T,C,H,W】->【B,T,2C,H,W】->【B*T,2C,H,W】。
         logits = self.score(torch.cat([phase_feats, kinetic], dim=2).reshape(b * t, c * 2, h, w))
-        # 恢复 [B,T,H,W] 的 attention logits。
+        # 恢复 attention logits 维度：【B*T,1,H,W】->【B,T,H,W】。
         logits = logits.reshape(b, t, 1, h, w).squeeze(2)
-        # 在 T 维 softmax，保证同一像素所有 phase 权重和为 1。
+        # 在 T 维 softmax，保证同一像素所有 phase 权重和为 1：【B,T,H,W】->【B,T,1,H,W】。
         attn = torch.softmax(logits, dim=1).unsqueeze(2)
-        # 加权融合所有 phase 的特征。
+        # 加权融合所有 phase 的特征：【B,T,C,H,W】*【B,T,1,H,W】-> sum(T) ->【B,C,H,W】。
         return (phase_feats * attn).sum(dim=1), attn
 
 
 def _window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor:
     """把 NHWC 特征图切分成不重叠的 Swin window。"""
-    # x: [B,H,W,C]。
+    # 输入 x:【B,H,W,C】。
     b, h, w, c = x.shape
-    # 先把 H/W 按 window_size 分组。
+    # 先把 H/W 按 window_size 分组：
+    # 【B,H,W,C】->【B,H/ws,ws,W/ws,ws,C】。
     x = x.view(b, h // window_size, window_size, w // window_size, window_size, c)
-    # 调整维度，把每个 window 展平成 token 序列。
+    # 调整维度并展平成 window token：
+    # 【B,H/ws,ws,W/ws,ws,C】->【B,H/ws,W/ws,ws,ws,C】->【B*num_windows,ws*ws,C】。
     return x.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, window_size * window_size, c)
 
 
 def _window_reverse(windows: torch.Tensor, window_size: int, h: int, w: int, b: int) -> torch.Tensor:
     """把 window token 还原为 NHWC 特征图。"""
-    # windows: [B*num_windows, window_size*window_size, C]。
+    # 输入 windows:【B*num_windows,window_size*window_size,C】。
+    # 先恢复 window 网格：【B*num_windows,ws*ws,C】->【B,H/ws,W/ws,ws,ws,C】。
     x = windows.view(b, h // window_size, w // window_size, window_size, window_size, -1)
-    # 按原始窗口排列恢复空间布局。
+    # 按原始窗口排列恢复空间布局：【B,H/ws,W/ws,ws,ws,C】->【B,H,W,C】。
     return x.permute(0, 1, 3, 2, 4, 5).contiguous().view(b, h, w, -1)
 
 
@@ -445,15 +463,15 @@ class WindowSelfAttention(nn.Module):
 
     def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """在每个局部窗口内执行多头自注意力。"""
-        # x: [B*num_windows, window_area, C]。
+        # 输入 x:【B*num_windows,window_area,C】，window_area=window_size*window_size。
         b_windows, n, c = x.shape
-        # 生成 q/k/v，并拆成多头格式。
+        # 生成 q/k/v：【Bw,N,C】->【Bw,N,3C】->【Bw,N,3,heads,head_dim】。
         qkv = self.qkv(x).reshape(b_windows, n, 3, self.num_heads, self.head_dim)
-        # 调整为 [3,Bw,heads,N,head_dim]。
+        # 调整为多头 attention 常用格式：【Bw,N,3,heads,head_dim】->【3,Bw,heads,N,head_dim】。
         qkv = qkv.permute(2, 0, 3, 1, 4)
         # 分离 q、k、v。
         q, k, v = qkv[0], qkv[1], qkv[2]
-        # 计算 scaled dot-product attention logits。
+        # 计算 scaled dot-product attention logits：【Bw,heads,N,head_dim】x【Bw,heads,head_dim,N】->【Bw,heads,N,N】。
         attn = (q * self.scale) @ k.transpose(-2, -1)
         # 根据相对位置索引取出 bias。
         bias = self.relative_position_bias_table[self.relative_position_index.reshape(-1)]
@@ -468,7 +486,7 @@ class WindowSelfAttention(nn.Module):
             attn = attn.view(-1, self.num_heads, n, n)
         # softmax 得到窗口内 token 权重。
         attn = torch.softmax(attn, dim=-1)
-        # attention 加权 value，并合并多头。
+        # attention 加权 value，并合并多头：【Bw,heads,N,N】x【Bw,heads,N,head_dim】->【Bw,N,C】。
         out = (attn @ v).transpose(1, 2).reshape(b_windows, n, c)
         # 输出投影回 C 维。
         return self.proj(out)
@@ -511,11 +529,11 @@ class SwinWindowBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """对 [B,C,H,W] 执行窗口注意力和 MLP 残差。"""
-        # 记录输入尺寸。
+        # 记录输入尺寸：【B,C,H,W】。
         b, c, h, w = x.shape
         # 第一个残差分支。
         shortcut = x
-        # Swin 的 LayerNorm/attention 更方便在 NHWC 上处理。
+        # Swin 的 LayerNorm/attention 更方便在 NHWC 上处理：【B,C,H,W】->【B,H,W,C】。
         x = x.permute(0, 2, 3, 1).contiguous()
         # 如果 H/W 不能整除 window_size，则补齐到可切窗口。
         pad_h = (self.window_size - h % self.window_size) % self.window_size
@@ -531,10 +549,11 @@ class SwinWindowBlock(nn.Module):
             x = torch.roll(x, shifts=(-shift, -shift), dims=(1, 2))
         # shifted window 需要 mask，普通窗口不需要。
         attn_mask = self._shifted_window_mask(hp, wp, x.device, x.dtype) if shift > 0 else None
-        # 切分窗口并在窗口内做 attention。
+        # 切分窗口并在窗口内做 attention：
+        # 【B,Hp,Wp,C】->【B*num_windows,ws*ws,C】->【B*num_windows,ws*ws,C】。
         windows = _window_partition(self.norm1(x), self.window_size)
         windows = self.attn(windows, mask=attn_mask)
-        # 把窗口重新拼回空间特征图。
+        # 把窗口重新拼回空间特征图：【B*num_windows,ws*ws,C】->【B,Hp,Wp,C】。
         x = _window_reverse(windows, self.window_size, hp, wp, b)
         if shift > 0:
             # 正向 roll 还原 shifted window 的空间位置。
@@ -542,13 +561,15 @@ class SwinWindowBlock(nn.Module):
         if pad_h or pad_w:
             # 移除 padding，恢复原始 H/W。
             x = x[:, :h, :w, :].contiguous()
-        # attention 残差连接。
+        # attention 残差连接，恢复 NCHW：【B,H,W,C】->【B,C,H,W】。
         x = shortcut + x.permute(0, 3, 1, 2).contiguous()
 
         # 第二个残差分支：MLP。
         shortcut = x
+        # MLP 在 NHWC token 通道上执行：【B,C,H,W】->【B,H,W,C】。
         x = x.permute(0, 2, 3, 1).contiguous()
         x = self.mlp(self.norm2(x))
+        # MLP 输出再回到 NCHW：【B,H,W,C】->【B,C,H,W】。
         return shortcut + x.permute(0, 3, 1, 2).contiguous()
 
     def _shifted_window_mask(self, height: int, width: int, device, dtype) -> torch.Tensor:
@@ -660,16 +681,19 @@ class HybridEncoder25D(nn.Module):
 
     def forward(self, x0: torch.Tensor) -> List[torch.Tensor]:
         """返回多尺度 skip features：[x0, x1, x2, x3, x4]。"""
-        # x0 是 phase attention 融合后的最高分辨率特征。
+        # x0 是 phase attention 融合后的最高分辨率特征：【B,C,H,W】。
+        # pool 下采样后进入 stage1：【B,C,H,W】->【B,C,H/2,W/2】->【B,2C,H/2,W/2】。
         x1 = self.down1(self.pool(x0))
-        # x2 继续下采样，扩大感受野。
+        # stage2 继续下采样，扩大感受野：【B,2C,H/2,W/2】->【B,4C,H/4,W/4】。
         x2 = self.down2(self.pool(x1))
-        # x3 是更低分辨率的语义特征。
+        # stage3 是更低分辨率的语义特征：【B,4C,H/4,W/4】->【B,8C,H/8,W/8】。
         x3 = self.down3(self.pool(x2))
-        # x4 是 bottleneck 输入。
+        # bottleneck CNN 输入继续下采样：【B,8C,H/8,W/8】->【B,16C,H/16,W/16】。
         x4 = self.bottleneck(self.pool(x3))
-        # 在 bottleneck 上执行 Swin window attention。
+        # 在 bottleneck 上执行 Swin window attention，空间尺寸和通道数保持不变：【B,16C,H/16,W/16】->【B,16C,H/16,W/16】。
         x4 = self.transformer(x4)
+        # 返回给 U-Net decoder 的 skip 列表：
+        # [【B,C,H,W】, 【B,2C,H/2,W/2】, 【B,4C,H/4,W/4】, 【B,8C,H/8,W/8】, 【B,16C,H/16,W/16】]。
         return [x0, x1, x2, x3, x4]
 
 
@@ -693,12 +717,15 @@ class UncertaintyBoundaryRefinement25D(nn.Module):
 
     def forward(self, decoder_feature: torch.Tensor, uncertainty_map: torch.Tensor):
         """返回 refined feature 和用于边界监督的 boundary feature。"""
-        # 先从 decoder feature 提取边界特征。
+        # decoder_feature 是 decoder 的最高分辨率输出：【B,C,H,W】。
+        # 先从 decoder feature 提取边界特征：【B,C,H,W】->【B,C,H,W】。
         boundary_feature = self.boundary_feature(decoder_feature)
         if self.disabled:
             # 消融时不做 refinement，但仍返回 boundary_feature 供后续 head 使用。
             return decoder_feature, boundary_feature
-        # uncertainty_map 越高，越依赖 boundary_feature 细化。
+        # uncertainty_map:【B,1,H,W】，boundary_gate(boundary_feature):【B,1,H,W】。
+        # 两个 gate 会广播到 C 个通道，对 boundary_feature 做逐像素调制。
+        # refined 维度保持不变：【B,C,H,W】+【B,1,H,W】*【B,1,H,W】*【B,C,H,W】->【B,C,H,W】。
         refined = decoder_feature + uncertainty_map * self.boundary_gate(boundary_feature) * boundary_feature
         return refined, boundary_feature
 
@@ -808,6 +835,8 @@ class KPTA25DNet(nn.Module):
 
         参数：
             x: [B,K,T,H,W]，例如 [B,3,17,256,256]。
+               这里 K=3 是相邻切片数，不是 17；
+               T=17 是 DCE phase/channel 数，即 pre + post1..8 + sub1..8。
             return_dict: True 时返回辅助输出；False 时只返回最终 seg_logits。
         """
         # 检查输入必须是 2.5D 格式。
@@ -822,49 +851,56 @@ class KPTA25DNet(nn.Module):
         # 如果调用时没有显式指定，就使用模型初始化时的 return_dict。
         return_dict = self.return_dict if return_dict is None else return_dict
 
-        # 先从原始输入构造 kinetic maps。
+        # 先从原始输入构造 kinetic maps：
+        # 【B,K,T,H,W】->【B,K,M,H,W】，例如【B,3,17,H,W】->【B,3,M,H,W】。
         kinetic_maps = self.kinetic_builder(x)
-        # 再对图像输入做统一归一化。
+        # 再对图像输入做统一归一化，维度不变：【B,K,T,H,W】->【B,K,T,H,W】。
         x_norm = self.kinetic_builder.normalize_input(x)
-        # 逐切片逐时相 CNN 编码，输出 [B,K,T,C,H,W]。
+        # 逐切片逐时相 CNN 编码：【B,K,T,H,W】->【B,K,T,C,H,W】。
         slice_phase_features = self.slice_stem(x_norm)
-        # 聚合 K 个相邻切片，输出 [B,T,C,H,W]。
+        # 聚合 K 个相邻切片，只保留 phase 维：【B,K,T,C,H,W】->【B,T,C,H,W】。
         context_features, slice_attention_maps = self.slice_agg(slice_phase_features)
-        # 编码 kinetic maps，得到 [B,C,H,W] 的动力学先验特征。
+        # 编码 kinetic maps，得到动力学先验特征：【B,K,M,H,W】->【B,C,H,W】。
         kinetic_feature, kinetic_slice_attention = self.kinetic_branch(kinetic_maps)
-        # 用 kinetic feature 引导像素级 phase attention。
+        # 用 kinetic feature 引导像素级 phase attention：
+        # 【B,T,C,H,W】+【B,C,H,W】->【B,C,H,W】。
         fused0, phase_attention_maps = self.phase_attention(context_features, kinetic_feature)
 
-        # CNN encoder + Swin bottleneck 产生多尺度 skip features。
+        # CNN encoder + Swin bottleneck 产生多尺度 skip features：
+        # 【B,C,H,W】-> [【B,C,H,W】, 【B,2C,H/2,W/2】, ..., 【B,16C,H/16,W/16】]。
         skips = self.hybrid_encoder(fused0)
-        # U-Net decoder 逐级上采样。
+        # U-Net decoder 逐级上采样：
+        # 【B,16C,H/16,W/16】+skip【B,8C,H/8,W/8】->【B,8C,H/8,W/8】。
         dec = self.up3(skips[4], skips[3])
+        # 【B,8C,H/8,W/8】+skip【B,4C,H/4,W/4】->【B,4C,H/4,W/4】。
         dec = self.up2(dec, skips[2])
+        # 【B,4C,H/4,W/4】+skip【B,2C,H/2,W/2】->【B,2C,H/2,W/2】。
         dec = self.up1(dec, skips[1])
+        # 【B,2C,H/2,W/2】+skip【B,C,H,W】->【B,C,H,W】。
         dec = self.up0(dec, skips[0])
 
-        # coarse logits 用于估计 uncertainty，不直接作为最终输出。
+        # coarse logits 用于估计 uncertainty，不直接作为最终输出：【B,C,H,W】->【B,1,H,W】。
         coarse_logits = self.coarse_head(dec)
-        # sigmoid 得到 coarse probability。
+        # sigmoid 得到 coarse probability：【B,1,H,W】->【B,1,H,W】。
         coarse_prob = torch.sigmoid(coarse_logits.float())
-        # p 越接近 0.5，不确定性越高；p 越接近 0/1，不确定性越低。
+        # p 越接近 0.5，不确定性越高；p 越接近 0/1，不确定性越低，维度保持【B,1,H,W】。
         uncertainty_prob = (1.0 - torch.abs(2.0 * coarse_prob - 1.0)).clamp(1e-3, 1.0 - 1e-3)
-        # 转成 logits 便于 uncertainty loss 使用 BCEWithLogitsLoss。
+        # 转成 logits 便于 uncertainty loss 使用 BCEWithLogitsLoss：【B,1,H,W】->【B,1,H,W】。
         uncertainty_logits = torch.logit(uncertainty_prob).to(dtype=coarse_logits.dtype)
-        # refinement 使用概率形式 uncertainty_map。
+        # refinement 使用概率形式 uncertainty_map：【B,1,H,W】。
         uncertainty_map = uncertainty_prob.to(dtype=dec.dtype)
         if self.disable_uncertainty:
             # 消融 uncertainty head 时，将不确定性置零。
             uncertainty_logits = torch.zeros_like(uncertainty_logits)
             uncertainty_map = torch.zeros_like(uncertainty_map)
-        # 使用 uncertainty_map 引导边界细化。
+        # 使用 uncertainty_map 引导边界细化：【B,C,H,W】+【B,1,H,W】-> refined【B,C,H,W】。
         refined, boundary_feature = self.refinement(dec, uncertainty_map)
-        # 预测边界 logits。
+        # 预测边界 logits：【B,C,H,W】->【B,1,H,W】。
         boundary_logits = self.boundary_head(boundary_feature)
         if self.disable_boundary:
             # 消融 boundary head 时，输出零 boundary logits。
             boundary_logits = torch.zeros_like(boundary_logits)
-        # 最终 segmentation logits。
+        # 最终 segmentation logits：【B,C,H,W】->【B,1,H,W】。
         seg_logits = self.seg_head(refined)
 
         if not return_dict:
