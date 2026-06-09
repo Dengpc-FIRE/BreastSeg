@@ -101,6 +101,11 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
         "Use in_channels=1 with gray_to_rgb=false for scheme A, or "
         "in_channels=3 with gray_to_rgb=true for scheme B."
     )
+    print(
+        f"[Fold {fold_idx}] start | train={len(train_pairs)} val={len(val_pairs)} "
+        f"device={device} in_channels={in_channels}",
+        flush=True,
+    )
 
     train_ds = BreastDM2DDataset(
         train_pairs,
@@ -181,14 +186,31 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
             }
         )
         torch.save(model.state_dict(), fold_dir / f"last_model_fold{fold_idx}.pth")
-        if val_metrics["dice"] > best_dice:
+        is_best = val_metrics["dice"] > best_dice
+        if is_best:
             best_dice = val_metrics["dice"]
             best_epoch = epoch
             best_metrics = val_eval
             torch.save(model.state_dict(), fold_dir / f"best_model_fold{fold_idx}.pth")
+        print(
+            f"[Fold {fold_idx}] epoch {epoch:03d}/{int(cfg['train']['epochs'])} "
+            f"train_loss={train_loss:.6f} val_loss={val_loss:.6f} "
+            f"dice={val_metrics['dice']:.4f} iou={val_metrics['iou']:.4f} "
+            f"recall={val_metrics['recall']:.4f} precision={val_metrics['precision']:.4f} "
+            f"acc={val_metrics['accuracy']:.6f} hd={val_metrics['hd']:.4f} "
+            f"lr={lr:.6g}{' best' if is_best else ''}",
+            flush=True,
+        )
 
     summary = {"fold": fold_idx, "best_epoch": best_epoch, **best_metrics["slice_level"]}
     save_json(str(fold_dir / f"fold_{fold_idx}_summary.json"), {"summary": summary, "all_metrics": best_metrics})
+    print(
+        f"[Fold {fold_idx}] done | best_epoch={best_epoch} "
+        f"dice={summary['dice']:.4f} iou={summary['iou']:.4f} "
+        f"recall={summary['recall']:.4f} precision={summary['precision']:.4f} "
+        f"acc={summary['accuracy']:.6f} hd={summary['hd']:.4f}",
+        flush=True,
+    )
     return summary
 
 
