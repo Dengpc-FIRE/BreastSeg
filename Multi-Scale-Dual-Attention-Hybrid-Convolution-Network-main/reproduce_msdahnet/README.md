@@ -54,6 +54,13 @@ If your processed dataset is stored elsewhere:
 python reproduce_msdahnet/prepare_breastdm.py --source /path/to/processed_17ch_dce
 ```
 
+For the fixed BreastDM train/val/test split used by the project baselines:
+
+```bash
+python reproduce_msdahnet/prepare_breastdm.py --config reproduce_msdahnet/configs/msdahnet_breastdm_fixed_split.yaml --layout fixed
+python reproduce_msdahnet/train_fixed_split.py --config reproduce_msdahnet/configs/msdahnet_breastdm_fixed_split.yaml
+```
+
 ## Input Channel Schemes
 
 Scheme A is default and matches the paper table:
@@ -83,6 +90,12 @@ From `Multi-Scale-Dual-Attention-Hybrid-Convolution-Network-main`:
 
 ```bash
 python reproduce_msdahnet/train_5fold.py --config reproduce_msdahnet/configs/msdahnet_breastdm_5fold.yaml
+```
+
+Fixed train/val/test split:
+
+```bash
+python reproduce_msdahnet/train_fixed_split.py --config reproduce_msdahnet/configs/msdahnet_breastdm_fixed_split.yaml
 ```
 
 Smoke test one fold for one epoch:

@@ -1,0 +1,60 @@
+experiment:
+  name: "msdahnet_breastdm_fixed_split_reproduction"
+  seed: 42
+  device: "cuda"
+
+data:
+  dataset: "BreastDM"
+  source_processed_17ch_dir: "../processed_17ch_dce"
+  processed_fixed_root: "./reproduce_msdahnet/BreastDM_fixed"
+  train_path: "./reproduce_msdahnet/BreastDM_fixed/train"
+  val_path: "./reproduce_msdahnet/BreastDM_fixed/val"
+  test_path: "./reproduce_msdahnet/BreastDM_fixed/test"
+  image_size: 256
+  original_size: 369
+  mode: "L"
+  in_channels: 1
+  gray_to_rgb: false
+  normalize: "minmax_0_1"
+  mask_threshold: 0
+  convert_from_processed_17ch: false
+
+model:
+  name: "MSDAHNet"
+  in_channels: 1
+  num_classes: 1
+
+train:
+  epochs: 100
+  batch_size: 8
+  optimizer: "Adam"
+  lr: 0.001
+  scheduler: "ReduceLROnPlateau"
+  scheduler_mode: "max"
+  scheduler_monitor: "val_dice"
+  scheduler_patience: 5
+  num_workers: 4
+  save_best_by: "val_dice"
+
+loss:
+  name: "DiceBCE"
+  implementation: "official"
+  dice_weight: 1.0
+  bce_weight: 1.0
+
+eval:
+  threshold: 0.5
+  metrics:
+    - dice
+    - iou
+    - recall
+    - precision
+    - accuracy
+    - hd
+  empty_mask_policy: "explicit"
+  hd_empty_value: 256.0
+
+output:
+  output_dir: "./reproduce_msdahnet/results_msdahnet_breastdm_fixed_split"
+  save_predictions: true
+  save_logs: true

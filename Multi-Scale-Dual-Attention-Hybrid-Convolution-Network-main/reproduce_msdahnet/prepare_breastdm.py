@@ -12,7 +12,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from reproduce_msdahnet.datasets.breastdm_2d_dataset import (  # noqa: E402
     collect_pairs,
+    collect_split_pairs,
     convert_processed_17ch_to_breastdm_dirs,
+    convert_processed_17ch_to_fixed_split_dirs,
 )
 
 
@@ -21,25 +23,42 @@ def main() -> None:
     parser.add_argument("--config", default="reproduce_msdahnet/configs/msdahnet_breastdm_5fold.yaml")
     parser.add_argument("--source", default=None, help="Source processed_17ch_dce directory.")
     parser.add_argument("--output", default=None, help="Output BreastDM directory containing pre_contrast_images and masks.")
+    parser.add_argument("--layout", choices=["flat", "fixed"], default="fixed", help="flat for 5-fold CV, fixed for train/val/test.")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     source_root = resolve_path(args.source or cfg["data"]["source_processed_17ch_dir"])
-    image_dir = Path(resolve_path(cfg["data"]["image_dir"]))
-    default_output = image_dir.parent
+    default_output = default_output_root(cfg, args.layout)
     output_root = Path(resolve_path(args.output)) if args.output else default_output
 
-    stats = convert_processed_17ch_to_breastdm_dirs(source_root=source_root, output_root=str(output_root))
-    pairs = collect_pairs(str(output_root / "pre_contrast_images"), str(output_root / "masks"))
+    if args.layout == "fixed":
+        stats = convert_processed_17ch_to_fixed_split_dirs(source_root=source_root, output_root=str(output_root))
+        paired = {}
+        for split in ("train", "val", "test"):
+            paired[split] = len(collect_split_pairs(str(output_root / split)))
+    else:
+        stats = convert_processed_17ch_to_breastdm_dirs(source_root=source_root, output_root=str(output_root))
+        paired = {"all": len(collect_pairs(str(output_root / "pre_contrast_images"), str(output_root / "masks")))}
 
     print(f"source_root: {source_root}")
     print(f"output_root: {output_root}")
     print(f"converted_images: {stats['images']}")
     print(f"converted_masks: {stats['masks']}")
     print(f"skipped_non_3d_arrays: {stats['skipped']}")
-    print(f"paired_samples: {len(pairs)}")
+    for split, count in paired.items():
+        print(f"{split}_paired_samples: {count}")
     print("Next step:")
-    print(f"python reproduce_msdahnet/train_5fold.py --config {args.config}")
+    if args.layout == "fixed":
+        print("python reproduce_msdahnet/train_fixed_split.py --config reproduce_msdahnet/configs/msdahnet_breastdm_fixed_split.yaml")
+    else:
+        print(f"python reproduce_msdahnet/train_5fold.py --config {args.config}")
+
+
+def default_output_root(cfg, layout: str) -> Path:
+    if layout == "fixed":
+        return Path(resolve_path(cfg.get("data", {}).get("processed_fixed_root", "./reproduce_msdahnet/BreastDM_fixed")))
+    image_dir = Path(resolve_path(cfg["data"]["image_dir"]))
+    return image_dir.parent
 
 
 def resolve_path(path: str) -> str:

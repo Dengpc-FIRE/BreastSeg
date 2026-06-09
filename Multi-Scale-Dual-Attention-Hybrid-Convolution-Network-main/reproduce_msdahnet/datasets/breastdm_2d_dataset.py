@@ -29,6 +29,19 @@ def collect_pairs(image_dir: str, mask_dir: str) -> List[Tuple[str, str]]:
     return pairs
 
 
+def collect_split_pairs(split_root: str) -> List[Tuple[str, str]]:
+    root = Path(split_root)
+    candidates = [
+        (root / "pre_contrast_images", root / "masks"),
+        (root / "data", root / "GT"),
+        (root / "images", root / "masks"),
+    ]
+    for image_root, mask_root in candidates:
+        if image_root.exists() and mask_root.exists():
+            return collect_pairs(str(image_root), str(mask_root))
+    raise FileNotFoundError(f"No supported image/mask folders found under split root: {root}")
+
+
 def convert_processed_17ch_to_breastdm_dirs(source_root: str, output_root: str) -> dict:
     """Create reproduction-local pre-contrast image/mask folders from processed_17ch_dce.
 
@@ -64,6 +77,45 @@ def convert_processed_17ch_to_breastdm_dirs(source_root: str, output_root: str) 
                 mask = _read_mask(str(mask_path), size=None)
                 cv2.imwrite(str(mask_out / image_name), (mask * 255).astype(np.uint8))
                 stats["masks"] += 1
+    return stats
+
+
+def convert_processed_17ch_to_fixed_split_dirs(source_root: str, output_root: str) -> dict:
+    """Create train/val/test pre-contrast folders from processed_17ch_dce."""
+    source = Path(source_root)
+    output = Path(output_root)
+    stats = {"images": 0, "masks": 0, "skipped": 0, "splits": {}}
+    for split in ("train", "val", "test"):
+        data_dir = source / split / "data"
+        gt_dir = source / split / "GT"
+        image_out = output / split / "pre_contrast_images"
+        mask_out = output / split / "masks"
+        image_out.mkdir(parents=True, exist_ok=True)
+        mask_out.mkdir(parents=True, exist_ok=True)
+        split_stats = {"images": 0, "masks": 0, "skipped": 0}
+        if not data_dir.exists() or not gt_dir.exists():
+            stats["splits"][split] = split_stats
+            continue
+        for npy_path in sorted(data_dir.glob("*.npy")):
+            arr = np.load(str(npy_path), mmap_mode="r")
+            if arr.ndim != 3:
+                split_stats["skipped"] += 1
+                stats["skipped"] += 1
+                continue
+            pre = _select_channel(arr, channel_index=0)
+            pre = _minmax_uint8(pre)
+            image_name = f"{npy_path.stem}.png"
+            cv2.imwrite(str(image_out / image_name), pre)
+            split_stats["images"] += 1
+            stats["images"] += 1
+
+            mask_path = _find_mask(gt_dir, npy_path.stem)
+            if mask_path is not None:
+                mask = _read_mask(str(mask_path), size=None)
+                cv2.imwrite(str(mask_out / image_name), (mask * 255).astype(np.uint8))
+                split_stats["masks"] += 1
+                stats["masks"] += 1
+        stats["splits"][split] = split_stats
     return stats
 
 
