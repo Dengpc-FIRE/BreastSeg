@@ -53,7 +53,7 @@ def convert_processed_17ch_to_breastdm_dirs(source_root: str, output_root: str) 
             if arr.ndim != 3:
                 stats["skipped"] += 1
                 continue
-            pre = np.asarray(arr[:, :, 0], dtype=np.float32)
+            pre = _select_channel(arr, channel_index=0)
             pre = _minmax_uint8(pre)
             image_name = f"{split}_{npy_path.stem}.png"
             cv2.imwrite(str(image_out / image_name), pre)
@@ -113,7 +113,7 @@ def _read_image(path: str, size: int) -> np.ndarray:
     if path_obj.suffix.lower() == ".npy":
         arr = np.load(str(path_obj))
         if arr.ndim == 3:
-            arr = arr[:, :, 0]
+            arr = _select_channel(arr, channel_index=0)
         image = np.asarray(arr, dtype=np.float32)
     else:
         image = np.array(Image.open(path).convert("L"), dtype=np.float32)
@@ -126,7 +126,7 @@ def _read_mask(path: str, size: Optional[int], threshold: float = 0.0) -> np.nda
     if path_obj.suffix.lower() == ".npy":
         mask = np.load(str(path_obj))
         if mask.ndim == 3:
-            mask = mask[:, :, 0]
+            mask = _select_mask_plane(mask)
     else:
         mask = np.array(Image.open(path).convert("L"))
     if size is not None:
@@ -142,3 +142,27 @@ def _minmax_float(image: np.ndarray, eps: float = 1e-6) -> np.ndarray:
 def _minmax_uint8(image: np.ndarray) -> np.ndarray:
     image = _minmax_float(image)
     return (image * 255.0).clip(0, 255).astype(np.uint8)
+
+
+def _select_channel(arr: np.ndarray, channel_index: int = 0) -> np.ndarray:
+    """Select one DCE channel from either HWC or CHW arrays."""
+    if arr.ndim != 3:
+        return np.asarray(arr, dtype=np.float32)
+    if arr.shape[-1] <= 64:
+        idx = min(channel_index, arr.shape[-1] - 1)
+        return np.asarray(arr[:, :, idx], dtype=np.float32)
+    if arr.shape[0] <= 64:
+        idx = min(channel_index, arr.shape[0] - 1)
+        return np.asarray(arr[idx, :, :], dtype=np.float32)
+    return np.asarray(arr[:, :, channel_index], dtype=np.float32)
+
+
+def _select_mask_plane(mask: np.ndarray) -> np.ndarray:
+    """Select a 2D mask from HWC, CHW, or slice-first arrays."""
+    if mask.ndim != 3:
+        return mask
+    if mask.shape[-1] <= 4:
+        return mask[:, :, 0]
+    if mask.shape[0] <= 4:
+        return mask[0, :, :]
+    return mask[mask.shape[0] // 2, :, :]

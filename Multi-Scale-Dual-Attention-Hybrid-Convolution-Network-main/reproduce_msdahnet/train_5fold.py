@@ -126,17 +126,17 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
         num_workers=int(cfg["train"]["num_workers"]),
         pin_memory=torch.cuda.is_available(),
     )
-    print(
-        f"[Fold {fold_idx}] data | train_samples={len(train_ds)} train_batches={len(train_loader)} "
-        f"val_samples={len(val_ds)} val_batches={len(val_loader)} batch_size={int(cfg['train']['batch_size'])}",
-        flush=True,
-    )
     val_loader = DataLoader(
         val_ds,
         batch_size=int(cfg["train"]["batch_size"]),
         shuffle=False,
         num_workers=int(cfg["train"]["num_workers"]),
         pin_memory=torch.cuda.is_available(),
+    )
+    print(
+        f"[Fold {fold_idx}] data | train_samples={len(train_ds)} train_batches={len(train_loader)} "
+        f"val_samples={len(val_ds)} val_batches={len(val_loader)} batch_size={int(cfg['train']['batch_size'])}",
+        flush=True,
     )
 
     model = build_msdahnet(in_channels=in_channels, num_classes=int(cfg["model"]["num_classes"])).to(device)
@@ -163,6 +163,9 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
             "val_precision",
             "val_accuracy",
             "val_hd",
+            "val_gt_positive_ratio",
+            "val_pred_positive_ratio",
+            "val_prob_mean",
             "learning_rate",
         ],
     )
@@ -187,6 +190,9 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
                 "val_precision": val_metrics["precision"],
                 "val_accuracy": val_metrics["accuracy"],
                 "val_hd": val_metrics["hd"],
+                "val_gt_positive_ratio": val_eval["debug"]["gt_positive_ratio"],
+                "val_pred_positive_ratio": val_eval["debug"]["pred_positive_ratio"],
+                "val_prob_mean": val_eval["debug"]["prob_mean"],
                 "learning_rate": lr,
             }
         )
@@ -203,6 +209,9 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
             f"dice={val_metrics['dice']:.4f} iou={val_metrics['iou']:.4f} "
             f"recall={val_metrics['recall']:.4f} precision={val_metrics['precision']:.4f} "
             f"acc={val_metrics['accuracy']:.6f} hd={val_metrics['hd']:.4f} "
+            f"gt_pos={val_eval['debug']['gt_positive_ratio']:.5f} "
+            f"pred_pos={val_eval['debug']['pred_positive_ratio']:.5f} "
+            f"prob_mean={val_eval['debug']['prob_mean']:.5f} "
             f"lr={lr:.6g}{' best' if is_best else ''}",
             flush=True,
         )
@@ -238,6 +247,7 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device, fold_idx: int = N
 def evaluate(model, loader, loss_fn, device, cfg, fold_idx: int = None, epoch: int = None) -> Dict:
     model.eval()
     losses, rows, preds, gts, paths = [], [], [], [], []
+    prob_means = []
     threshold = float(cfg["eval"]["threshold"])
     hd_empty_value = float(cfg["eval"].get("hd_empty_value", cfg["data"]["image_size"]))
     desc = "eval" if fold_idx is None else f"fold{fold_idx} epoch{epoch:03d} val"
@@ -250,6 +260,7 @@ def evaluate(model, loader, loss_fn, device, cfg, fold_idx: int = None, epoch: i
             losses.append(float(loss.item()))
             probs = torch.sigmoid(logits).detach().cpu().numpy()
             mask_np = masks.detach().cpu().numpy()
+            prob_means.append(float(probs.mean()))
             for idx in range(probs.shape[0]):
                 pred = (probs[idx, 0] >= threshold).astype(np.uint8)
                 gt = (mask_np[idx, 0] > 0.5).astype(np.uint8)
@@ -261,6 +272,11 @@ def evaluate(model, loader, loss_fn, device, cfg, fold_idx: int = None, epoch: i
         "slice_level": summarize_slice_metrics(rows),
         "global_pixel_level": global_pixel_metrics(preds, gts, hd_empty_value=hd_empty_value),
         "patient_level": summarize_patient_metrics(rows, paths),
+        "debug": {
+            "gt_positive_ratio": float(np.mean([gt.mean() for gt in gts])) if gts else 0.0,
+            "pred_positive_ratio": float(np.mean([pred.mean() for pred in preds])) if preds else 0.0,
+            "prob_mean": float(np.mean(prob_means)) if prob_means else 0.0,
+        },
     }
     return float(np.mean(losses)) if losses else 0.0, result
 
