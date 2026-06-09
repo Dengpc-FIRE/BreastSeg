@@ -1,5 +1,5 @@
 experiment:
-  name: "msdahnet_breastdm_fixed_split_reproduction"
+  name: "msdahnet_breastdm_fixed_split_post1"
   seed: 42
   device: "cuda"
 
@@ -14,8 +14,8 @@ data:
   image_size: 256
   original_size: 369
   mode: "L"
-  input_mode: "single_channel_pre"
-  channel_index:
+  input_mode: "single_channel_post"
+  channel_index: 1
   in_channels: 1
   gray_to_rgb: false
   normalize: "minmax_0_1"
@@ -59,6 +59,6 @@ eval:
   hd_empty_value: 256.0
 
 output:
-  output_dir: "./reproduce_msdahnet/results_msdahnet_breastdm_fixed_split"
+  output_dir: "./reproduce_msdahnet/results_msdahnet_breastdm_fixed_split_post1"
   save_predictions: true
   save_logs: true

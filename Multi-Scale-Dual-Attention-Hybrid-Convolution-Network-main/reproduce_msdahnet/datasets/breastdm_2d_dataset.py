@@ -80,10 +80,13 @@ def convert_processed_17ch_to_breastdm_dirs(source_root: str, output_root: str) 
     return stats
 
 
-def convert_processed_17ch_to_fixed_split_dirs(source_root: str, output_root: str) -> dict:
+def convert_processed_17ch_to_fixed_split_dirs(source_root: str, output_root: str, output_format: str = "npy") -> dict:
     """Create train/val/test pre-contrast folders from processed_17ch_dce."""
     source = Path(source_root)
     output = Path(output_root)
+    output_format = output_format.lower()
+    if output_format not in {"npy", "png"}:
+        raise ValueError(f"Unsupported output_format: {output_format}")
     stats = {"images": 0, "masks": 0, "skipped": 0, "splits": {}}
     for split in ("train", "val", "test"):
         data_dir = source / split / "data"
@@ -102,17 +105,22 @@ def convert_processed_17ch_to_fixed_split_dirs(source_root: str, output_root: st
                 split_stats["skipped"] += 1
                 stats["skipped"] += 1
                 continue
-            pre = _select_channel(arr, channel_index=0)
-            pre = _minmax_uint8(pre)
-            image_name = f"{npy_path.stem}.png"
-            cv2.imwrite(str(image_out / image_name), pre)
+            image_name = f"{npy_path.stem}.{output_format}"
+            if output_format == "npy":
+                np.save(str(image_out / image_name), np.asarray(arr, dtype=np.float32))
+            else:
+                pre = _select_channel(arr, channel_index=0)
+                cv2.imwrite(str(image_out / image_name), _minmax_uint8(pre))
             split_stats["images"] += 1
             stats["images"] += 1
 
             mask_path = _find_mask(gt_dir, npy_path.stem)
             if mask_path is not None:
                 mask = _read_mask(str(mask_path), size=None)
-                cv2.imwrite(str(mask_out / image_name), (mask * 255).astype(np.uint8))
+                if output_format == "npy":
+                    np.save(str(mask_out / image_name), mask.astype(np.float32))
+                else:
+                    cv2.imwrite(str(mask_out / image_name), (mask * 255).astype(np.uint8))
                 split_stats["masks"] += 1
                 stats["masks"] += 1
         stats["splits"][split] = split_stats
@@ -126,18 +134,22 @@ class BreastDM2DDataset(Dataset):
         image_size: int = 256,
         gray_to_rgb: bool = False,
         mask_threshold: float = 0.0,
+        input_mode: str = "single_channel_pre",
+        channel_index: int = None,
     ) -> None:
         self.pairs = list(pairs)
         self.image_size = int(image_size)
         self.gray_to_rgb = bool(gray_to_rgb)
         self.mask_threshold = float(mask_threshold)
+        self.input_mode = input_mode
+        self.channel_index = channel_index
 
     def __len__(self) -> int:
         return len(self.pairs)
 
     def __getitem__(self, index: int):
         image_path, mask_path = self.pairs[index]
-        image = _read_image(image_path, self.image_size)
+        image = _read_image(image_path, self.image_size, input_mode=self.input_mode, channel_index=self.channel_index)
         mask = _read_mask(mask_path, self.image_size, threshold=self.mask_threshold)
 
         image = image[None, :, :]
@@ -160,17 +172,29 @@ def _find_mask(mask_root: Path, stem: str) -> Optional[Path]:
     return None
 
 
-def _read_image(path: str, size: int) -> np.ndarray:
+def _read_image(path: str, size: int, input_mode: str = "single_channel_pre", channel_index: int = None) -> np.ndarray:
     path_obj = Path(path)
     if path_obj.suffix.lower() == ".npy":
         arr = np.load(str(path_obj))
         if arr.ndim == 3:
-            arr = _select_channel(arr, channel_index=0)
+            arr = _select_channel(arr, channel_index=_channel_index(input_mode, channel_index))
         image = np.asarray(arr, dtype=np.float32)
     else:
         image = np.array(Image.open(path).convert("L"), dtype=np.float32)
     image = cv2.resize(image, (size, size), interpolation=cv2.INTER_LINEAR)
     return _minmax_float(image)
+
+
+def _channel_index(input_mode: str, channel_index: int = None) -> int:
+    if channel_index is not None:
+        return int(channel_index)
+    if input_mode == "single_channel_pre":
+        return 0
+    if input_mode == "single_channel_post":
+        return 1
+    if input_mode == "single_channel_sub":
+        return 9
+    raise ValueError(f"Unsupported input_mode for single-channel MSDAHNet: {input_mode}")
 
 
 def _read_mask(path: str, size: Optional[int], threshold: float = 0.0) -> np.ndarray:

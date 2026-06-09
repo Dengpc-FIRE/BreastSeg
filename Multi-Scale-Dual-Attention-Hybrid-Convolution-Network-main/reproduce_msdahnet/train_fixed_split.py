@@ -156,6 +156,10 @@ def run_fixed_split(train_pairs, val_pairs, test_pairs, cfg, output_dir: Path) -
         )
 
     model.load_state_dict(torch.load(output_dir / "best_model.pth", map_location=device))
+    best_threshold, threshold_table = find_best_threshold(model, val_loader, device, cfg)
+    cfg["eval"]["threshold"] = float(best_threshold)
+    save_json(str(output_dir / "threshold_selection.json"), {"best_threshold": best_threshold, "val_thresholds": threshold_table})
+    print(f"[Fixed] threshold | selected={best_threshold:.2f} by validation Dice", flush=True)
     pred_dir = output_dir / "predicted_masks" if bool(cfg["output"].get("save_predictions", True)) else None
     test_loss, test_eval = evaluate(model, test_loader, loss_fn, device, cfg, save_predictions_dir=pred_dir)
     test_metrics = test_eval["slice_level"]
@@ -168,6 +172,8 @@ def run_fixed_split(train_pairs, val_pairs, test_pairs, cfg, output_dir: Path) -
     )
     return {
         "best_epoch": best_epoch,
+        "best_threshold": best_threshold,
+        "threshold_selection": threshold_table,
         "best_validation": best_val,
         "test_loss": test_loss,
         "test": test_eval,
@@ -180,6 +186,8 @@ def make_loader(pairs, cfg, shuffle: bool) -> DataLoader:
         image_size=int(cfg["data"]["image_size"]),
         gray_to_rgb=bool(cfg["data"].get("gray_to_rgb", False)),
         mask_threshold=float(cfg["data"]["mask_threshold"]),
+        input_mode=cfg["data"].get("input_mode", "single_channel_pre"),
+        channel_index=cfg["data"].get("channel_index", None),
     )
     return DataLoader(
         ds,
@@ -244,12 +252,59 @@ def evaluate(model, loader, loss_fn, device, cfg, epoch: int = None, save_predic
     }
 
 
+def find_best_threshold(model, loader, device, cfg):
+    thresholds = cfg["eval"].get("threshold_search", [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7])
+    threshold_values = [float(t) for t in thresholds]
+    probs, masks = collect_probs_and_masks(model, loader, device)
+    table = []
+    best_threshold = threshold_values[0]
+    best_dice = -1.0
+    hd_empty_value = float(cfg["eval"].get("hd_empty_value", cfg["data"]["image_size"]))
+    for threshold in threshold_values:
+        rows = []
+        pred_pos = []
+        for prob, mask in zip(probs, masks):
+            pred = (prob >= threshold).astype(np.uint8)
+            gt = (mask > 0.5).astype(np.uint8)
+            rows.append(compute_sample_metrics(pred, gt, hd_empty_value=hd_empty_value))
+            pred_pos.append(float(pred.mean()))
+        metrics = summarize_slice_metrics(rows)
+        item = {
+            "threshold": threshold,
+            "dice": metrics["dice"],
+            "iou": metrics["iou"],
+            "recall": metrics["recall"],
+            "precision": metrics["precision"],
+            "pred_positive_ratio": float(np.mean(pred_pos)),
+        }
+        table.append(item)
+        if metrics["dice"] > best_dice:
+            best_dice = metrics["dice"]
+            best_threshold = threshold
+    return best_threshold, table
+
+
+def collect_probs_and_masks(model, loader, device):
+    model.eval()
+    probs, masks = [], []
+    with torch.no_grad():
+        for batch in tqdm(loader, desc="fixed val threshold", leave=False):
+            images = batch["image"].to(device, dtype=torch.float32)
+            batch_probs = torch.sigmoid(model(images)).cpu().numpy()
+            batch_masks = batch["mask"].cpu().numpy()
+            for idx in range(batch_probs.shape[0]):
+                probs.append(batch_probs[idx, 0])
+                masks.append(batch_masks[idx, 0])
+    return probs, masks
+
+
 def maybe_convert_data(cfg) -> None:
     if not cfg["data"].get("convert_from_processed_17ch", False):
         return
     convert_processed_17ch_to_fixed_split_dirs(
         source_root=resolve_path(cfg["data"]["source_processed_17ch_dir"]),
         output_root=resolve_path(cfg["data"]["processed_fixed_root"]),
+        output_format=cfg["data"].get("processed_output_format", "npy"),
     )
 
 

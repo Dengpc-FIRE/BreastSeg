@@ -24,6 +24,7 @@ def main() -> None:
     parser.add_argument("--source", default=None, help="Source processed_17ch_dce directory.")
     parser.add_argument("--output", default=None, help="Output BreastDM directory containing pre_contrast_images and masks.")
     parser.add_argument("--layout", choices=["flat", "fixed"], default="fixed", help="flat for 5-fold CV, fixed for train/val/test.")
+    parser.add_argument("--format", choices=["npy", "png"], default=None, help="fixed-layout output format. npy preserves MRI float precision.")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -32,7 +33,12 @@ def main() -> None:
     output_root = Path(resolve_path(args.output)) if args.output else default_output
 
     if args.layout == "fixed":
-        stats = convert_processed_17ch_to_fixed_split_dirs(source_root=source_root, output_root=str(output_root))
+        output_format = args.format or cfg.get("data", {}).get("processed_output_format", "npy")
+        stats = convert_processed_17ch_to_fixed_split_dirs(
+            source_root=source_root,
+            output_root=str(output_root),
+            output_format=output_format,
+        )
         paired = {}
         for split in ("train", "val", "test"):
             paired[split] = len(collect_split_pairs(str(output_root / split)))
@@ -45,6 +51,8 @@ def main() -> None:
     print(f"converted_images: {stats['images']}")
     print(f"converted_masks: {stats['masks']}")
     print(f"skipped_non_3d_arrays: {stats['skipped']}")
+    if args.layout == "fixed":
+        print(f"output_format: {args.format or cfg.get('data', {}).get('processed_output_format', 'npy')}")
     for split, count in paired.items():
         print(f"{split}_paired_samples: {count}")
     print("Next step:")
