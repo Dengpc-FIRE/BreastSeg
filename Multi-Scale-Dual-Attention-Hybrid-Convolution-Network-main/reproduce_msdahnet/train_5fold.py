@@ -49,7 +49,7 @@ def main() -> None:
     if args.epochs is not None:
         cfg["train"]["epochs"] = int(args.epochs)
 
-    output_dir = resolve_path(cfg["output"]["output_dir"])
+    output_dir = Path(resolve_path(cfg["output"]["output_dir"]))
     output_dir.mkdir(parents=True, exist_ok=True)
     save_json(str(output_dir / "resolved_config.json"), cfg)
     write_reproduction_notes(output_dir, cfg)
