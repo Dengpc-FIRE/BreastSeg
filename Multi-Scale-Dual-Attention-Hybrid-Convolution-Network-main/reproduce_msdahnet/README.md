@@ -42,6 +42,18 @@ data:
 
 The converter extracts channel 0 as pre-contrast input and writes images/masks under `reproduce_msdahnet/BreastDM`, keeping new data inside the reproduction folder.
 
+You can also prepare the dataset explicitly before training:
+
+```bash
+python reproduce_msdahnet/prepare_breastdm.py --config reproduce_msdahnet/configs/msdahnet_breastdm_5fold.yaml
+```
+
+If your processed dataset is stored elsewhere:
+
+```bash
+python reproduce_msdahnet/prepare_breastdm.py --source /path/to/processed_17ch_dce
+```
+
 ## Input Channel Schemes
 
 Scheme A is default and matches the paper table:

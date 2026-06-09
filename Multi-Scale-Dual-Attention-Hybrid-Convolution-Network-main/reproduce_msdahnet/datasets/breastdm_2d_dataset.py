@@ -29,7 +29,7 @@ def collect_pairs(image_dir: str, mask_dir: str) -> List[Tuple[str, str]]:
     return pairs
 
 
-def convert_processed_17ch_to_breastdm_dirs(source_root: str, output_root: str) -> None:
+def convert_processed_17ch_to_breastdm_dirs(source_root: str, output_root: str) -> dict:
     """Create reproduction-local pre-contrast image/mask folders from processed_17ch_dce.
 
     Each source data file is expected to be [H,W,17]. Channel 0 is used as
@@ -42,6 +42,7 @@ def convert_processed_17ch_to_breastdm_dirs(source_root: str, output_root: str) 
     image_out.mkdir(parents=True, exist_ok=True)
     mask_out.mkdir(parents=True, exist_ok=True)
 
+    stats = {"images": 0, "masks": 0, "skipped": 0}
     for split in ("train", "val", "test"):
         data_dir = source / split / "data"
         gt_dir = source / split / "GT"
@@ -50,16 +51,20 @@ def convert_processed_17ch_to_breastdm_dirs(source_root: str, output_root: str) 
         for npy_path in sorted(data_dir.glob("*.npy")):
             arr = np.load(str(npy_path), mmap_mode="r")
             if arr.ndim != 3:
+                stats["skipped"] += 1
                 continue
             pre = np.asarray(arr[:, :, 0], dtype=np.float32)
             pre = _minmax_uint8(pre)
             image_name = f"{split}_{npy_path.stem}.png"
             cv2.imwrite(str(image_out / image_name), pre)
+            stats["images"] += 1
 
             mask_path = _find_mask(gt_dir, npy_path.stem)
             if mask_path is not None:
                 mask = _read_mask(str(mask_path), size=None)
                 cv2.imwrite(str(mask_out / image_name), (mask * 255).astype(np.uint8))
+                stats["masks"] += 1
+    return stats
 
 
 class BreastDM2DDataset(Dataset):
