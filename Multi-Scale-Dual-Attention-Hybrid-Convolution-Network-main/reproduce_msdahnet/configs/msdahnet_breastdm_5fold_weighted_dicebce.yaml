@@ -1,5 +1,5 @@
 experiment:
-  name: "msdahnet_breastdm_5fold_reproduction"
+  name: "msdahnet_breastdm_5fold_weighted_dicebce"
   seed: 42
   device: "cuda"
 
@@ -43,13 +43,13 @@ train:
 
 loss:
   name: "DiceBCE"
-  implementation: "official"
+  implementation: "custom"
   dice_weight: 1.0
   bce_weight: 1.0
   smooth: 1.0
-  dice_reduction: "batch"
+  dice_reduction: "sample"
   bce_pos_weight:
-  auto_pos_weight: false
+  auto_pos_weight: true
   max_pos_weight: 50.0
 
 eval:
@@ -65,7 +65,7 @@ eval:
   hd_empty_value: 256.0
 
 output:
-  output_dir: "./reproduce_msdahnet/results_msdahnet_breastdm_5fold"
+  output_dir: "./reproduce_msdahnet/results_msdahnet_breastdm_5fold_weighted_dicebce"
   save_predictions: true
   save_logs: true
 

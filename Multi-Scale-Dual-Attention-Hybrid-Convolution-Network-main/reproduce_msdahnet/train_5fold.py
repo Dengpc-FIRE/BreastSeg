@@ -1,5 +1,6 @@
 import argparse
 import csv
+import importlib.util
 import sys
 from pathlib import Path
 from typing import Dict, List
@@ -22,7 +23,7 @@ from reproduce_msdahnet.datasets.breastdm_2d_dataset import (  # noqa: E402
     collect_pairs,
     convert_processed_17ch_to_breastdm_dirs,
 )
-from reproduce_msdahnet.losses.dice_bce_loss import DiceBCELoss  # noqa: E402
+from reproduce_msdahnet.losses.dice_bce_loss import DiceBCELoss as CustomDiceBCELoss  # noqa: E402
 from reproduce_msdahnet.metrics.segmentation_metrics import (  # noqa: E402
     METRIC_KEYS,
     compute_sample_metrics,
@@ -146,10 +147,8 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
         mode=cfg["train"]["scheduler_mode"],
         patience=int(cfg["train"]["scheduler_patience"]),
     )
-    loss_fn = DiceBCELoss(
-        dice_weight=float(cfg["loss"]["dice_weight"]),
-        bce_weight=float(cfg["loss"]["bce_weight"]),
-    )
+    loss_fn = build_loss(cfg)
+    print(f"[Fold {fold_idx}] loss | {describe_loss(cfg)}", flush=True)
 
     logger = CSVLogger(
         str(fold_dir / f"training_log_fold{fold_idx}.csv"),
@@ -323,12 +322,52 @@ def maybe_convert_data(cfg) -> None:
     )
 
 
+def build_loss(cfg):
+    implementation = cfg["loss"].get("implementation", "official").lower()
+    if cfg["loss"]["name"].lower() != "dicebce":
+        raise ValueError(f"Unsupported loss for MSDAHNet reproduction: {cfg['loss']['name']}")
+    if implementation == "official":
+        module = load_official_loss_module()
+        return module.DiceBCELoss()
+    if implementation == "custom":
+        return CustomDiceBCELoss(
+            dice_weight=float(cfg["loss"]["dice_weight"]),
+            bce_weight=float(cfg["loss"]["bce_weight"]),
+            smooth=float(cfg["loss"].get("smooth", 1.0)),
+            dice_reduction=cfg["loss"].get("dice_reduction", "batch"),
+            bce_pos_weight=cfg["loss"].get("bce_pos_weight", None),
+            auto_pos_weight=bool(cfg["loss"].get("auto_pos_weight", False)),
+            max_pos_weight=float(cfg["loss"].get("max_pos_weight", 50.0)),
+        )
+    raise ValueError(f"Unsupported loss implementation: {implementation}")
+
+
+def load_official_loss_module():
+    loss_path = REPO_ROOT / "loss.py"
+    spec = importlib.util.spec_from_file_location("official_msdahnet_loss", loss_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def describe_loss(cfg) -> str:
+    implementation = cfg["loss"].get("implementation", "official").lower()
+    if implementation == "official":
+        return "official loss.py::DiceBCELoss"
+    return (
+        "custom DiceBCELoss "
+        f"dice_reduction={cfg['loss'].get('dice_reduction', 'batch')} "
+        f"auto_pos_weight={cfg['loss'].get('auto_pos_weight', False)}"
+    )
+
+
 def write_reproduction_notes(output_dir: Path, cfg) -> None:
     notes = [
         "The reproduction is based on the official released implementation.",
         "Primary result is slice-level mean metrics, because the paper reports 2D image experiments.",
         "Scheme A is default: grayscale Mode=L, in_channels=1.",
         "Scheme B is supported by setting data.gray_to_rgb=true and model.in_channels=3.",
+        f"Loss implementation: {describe_loss(cfg)}.",
         "The original official train.py is not used for CV because it does not implement 5-fold patient-level validation.",
     ]
     (output_dir / "reproduction_notes.txt").write_text("\n".join(notes) + "\n", encoding="utf-8")
