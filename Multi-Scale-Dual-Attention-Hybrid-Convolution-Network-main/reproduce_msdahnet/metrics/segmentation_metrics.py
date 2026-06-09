@@ -52,9 +52,7 @@ def hausdorff_distance(pred: np.ndarray, gt: np.ndarray, hd_empty_value: float =
 def global_pixel_metrics(preds: Iterable[np.ndarray], gts: Iterable[np.ndarray], hd_empty_value: float = 256.0) -> Dict[str, float]:
     pred = np.concatenate([(p > 0).astype(np.uint8).reshape(-1) for p in preds])
     gt = np.concatenate([(g > 0).astype(np.uint8).reshape(-1) for g in gts])
-    metrics = compute_sample_metrics(pred, gt, hd_empty_value=hd_empty_value)
-    metrics["hd"] = float("nan")
-    return metrics
+    return {**_confusion_metrics(pred, gt), "hd": float("nan")}
 
 
 def summarize_slice_metrics(rows: List[Dict[str, float]]) -> Dict[str, float]:
@@ -83,8 +81,38 @@ def mean_std(fold_metrics: List[Dict[str, float]]) -> Dict[str, Dict[str, float]
 
 def _boundary_points(mask: np.ndarray) -> np.ndarray:
     mask = (mask > 0).astype(bool)
+    mask = np.squeeze(mask)
+    if mask.ndim != 2:
+        raise ValueError(f"Hausdorff distance expects a 2D mask, got shape {mask.shape}")
     if not mask.any():
         return np.empty((0, 2), dtype=np.float32)
     eroded = binary_erosion(mask, structure=np.ones((3, 3)), border_value=0)
     boundary = mask ^ eroded
     return np.argwhere(boundary).astype(np.float32)
+
+
+def _confusion_metrics(pred: np.ndarray, gt: np.ndarray) -> Dict[str, float]:
+    pred = (pred > 0).astype(np.uint8)
+    gt = (gt > 0).astype(np.uint8)
+    tp = float((pred * gt).sum())
+    fp = float((pred * (1 - gt)).sum())
+    fn = float(((1 - pred) * gt).sum())
+    tn = float(((1 - pred) * (1 - gt)).sum())
+    eps = 1e-8
+    if pred.sum() == 0 and gt.sum() == 0:
+        return {"dice": 1.0, "iou": 1.0, "recall": 1.0, "precision": 1.0, "accuracy": 1.0}
+    if pred.sum() == 0 or gt.sum() == 0:
+        return {
+            "dice": 0.0,
+            "iou": 0.0,
+            "recall": 0.0,
+            "precision": 0.0,
+            "accuracy": float((pred == gt).mean()),
+        }
+    return {
+        "dice": (2.0 * tp) / (2.0 * tp + fp + fn + eps),
+        "iou": tp / (tp + fp + fn + eps),
+        "recall": tp / (tp + fn + eps),
+        "precision": tp / (tp + fp + eps),
+        "accuracy": (tp + tn) / (tp + tn + fp + fn + eps),
+    }
