@@ -3,7 +3,7 @@ train:
   val_path: "./processed_25d_dce/val"
   test_path: "./processed_25d_dce/test"
   output_path: "./results_kpta_25d_net"
-  epochs: 400
+  epochs: 250
   batch_size: 4
   lr: 0.0001
   num_workers: 4
@@ -22,7 +22,6 @@ model:
     post: [1, 2, 3, 4, 5, 6, 7, 8]
     subtraction: [9, 10, 11, 12, 13, 14, 15, 16]
   kinetic_maps:
-    - sub_stack
     - peak_enhancement
     - mean_enhancement
     - temporal_std
@@ -31,6 +30,16 @@ model:
   normalize_after_kinetic: true
   normalize_kinetic: true
   slice_context_mode: "attention"
+  slice_attention_type: "csam"
+  csam_aggregate: "center"
+  csam_uncertainty: false
+  phase_attention_type: "pdwa"
+  use_enhancement_prior: true
+  use_kinetic_bias: true
+  use_difference_refinement: true
+  residual_mean_weight: 0.5
+  lambda_enh_init: 1.0
+  gamma_diff_init: 0.5
   phase_attention: true
   use_uncertainty_head: true
   use_boundary_head: true
@@ -55,6 +64,7 @@ ablation:
   disable_kinetic_maps: false
   disable_slice_context: false
   disable_pixelwise_phase_attention: false
+  disable_kinetic_raw_fusion: false
   disable_transformer_bottleneck: false
   disable_uncertainty_refinement: false
   disable_boundary_head: false

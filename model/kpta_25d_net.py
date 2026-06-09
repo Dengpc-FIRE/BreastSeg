@@ -33,6 +33,7 @@ from typing import Dict, List, Optional, Sequence
 
 import torch
 import torch.nn as nn
+import torch.distributions as td
 import torch.nn.functional as F
 
 from .dce_kinetic_utils import PhaseIndices
@@ -310,6 +311,198 @@ class SliceContextAggregation(nn.Module):
         return aggregated, weights
 
 
+def custom_max(x: torch.Tensor, dim, keepdim: bool = True) -> torch.Tensor:
+    """按多个维度连续取最大值，兼容原始 CSAM 实现。"""
+    out = x
+    for axis in sorted(dim, reverse=True):
+        out = torch.max(out, dim=axis, keepdim=keepdim)[0]
+    return out
+
+
+class PositionalAttentionModule(nn.Module):
+    """CSAM 的空间位置注意力，在 K 个切片和 C 个通道上汇聚后生成 H/W 权重。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=7, padding=3)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [K,C,H,W]。max/avg 后得到 [1,1,H,W]，再生成空间注意力。
+        max_x = custom_max(x, dim=(0, 1), keepdim=True)
+        avg_x = torch.mean(x, dim=(0, 1), keepdim=True)
+        att = torch.cat((max_x, avg_x), dim=1)
+        att = torch.sigmoid(self.conv(att))
+        return x * att
+
+
+class SemanticAttentionModule(nn.Module):
+    """CSAM 的语义/通道注意力，对每个 phase 的 C 个通道重新标定。"""
+
+    def __init__(self, in_features: int, reduction_rate: int = 16) -> None:
+        super().__init__()
+        hidden_dim = max(in_features // reduction_rate, 4)
+        self.linear = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=hidden_dim),
+            nn.ReLU(),
+            nn.Linear(in_features=hidden_dim, out_features=in_features),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [K,C,H,W]。在 slice 和空间维度上汇聚，得到通道注意力 [1,C,1,1]。
+        max_x = custom_max(x, dim=(0, 2, 3), keepdim=False).unsqueeze(0)
+        avg_x = torch.mean(x, dim=(0, 2, 3), keepdim=False).unsqueeze(0)
+        att = torch.sigmoid(self.linear(max_x) + self.linear(avg_x)).unsqueeze(-1).unsqueeze(-1)
+        return x * att
+
+
+class SliceAttentionModule(nn.Module):
+    """CSAM 的切片注意力，对 K 个相邻切片做全局权重标定。"""
+
+    def __init__(
+        self,
+        in_features: int,
+        rate: float = 4.0,
+        uncertainty: bool = False,
+        rank: int = 5,
+    ) -> None:
+        super().__init__()
+        self.uncertainty = uncertainty
+        self.rank = rank
+        hidden_dim = max(int(in_features * rate), 4)
+        self.linear = nn.Sequential(
+            nn.Linear(in_features=in_features, out_features=hidden_dim),
+            nn.ReLU(),
+            nn.Linear(in_features=hidden_dim, out_features=in_features),
+        )
+        if uncertainty:
+            self.non_linear = nn.ReLU()
+            self.mean = nn.Linear(in_features=in_features, out_features=in_features)
+            self.log_diag = nn.Linear(in_features=in_features, out_features=in_features)
+            self.factor = nn.Linear(in_features=in_features, out_features=in_features * rank)
+        self.last_attention_map = None
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [K,C,H,W]。在通道和空间维度汇聚，得到 K 个 slice 的注意力。
+        num_slices = x.shape[0]
+        max_x = custom_max(x, dim=(1, 2, 3), keepdim=False).unsqueeze(0)
+        avg_x = torch.mean(x, dim=(1, 2, 3), keepdim=False).unsqueeze(0)
+        att = self.linear(max_x) + self.linear(avg_x)
+        if self.uncertainty:
+            temp = self.non_linear(att)
+            mean = self.mean(temp)
+            diag = self.log_diag(temp).exp().clamp_min(1e-6)
+            factor = self.factor(temp).view(1, -1, self.rank)
+            dist = td.LowRankMultivariateNormal(loc=mean, cov_factor=factor, cov_diag=diag)
+            # 训练时采样增强鲁棒性，推理时固定用均值，避免测试结果随机漂移。
+            att = dist.rsample() if self.training else mean
+        att = torch.sigmoid(att).view(num_slices, 1, 1, 1)
+        self.last_attention_map = att.detach()
+        return x * att
+
+
+class CSAM(nn.Module):
+    """Cross-Slice Attention Module，用于增强一组相邻切片特征 [K,C,H,W]。"""
+
+    def __init__(
+        self,
+        num_slices: int,
+        num_channels: int,
+        semantic: bool = True,
+        positional: bool = True,
+        slice: bool = True,
+        uncertainty: bool = False,
+        rank: int = 5,
+    ) -> None:
+        super().__init__()
+        self.semantic = semantic
+        self.positional = positional
+        self.slice = slice
+        if semantic:
+            self.semantic_att = SemanticAttentionModule(num_channels)
+        if positional:
+            self.positional_att = PositionalAttentionModule()
+        if slice:
+            self.slice_att = SliceAttentionModule(num_slices, uncertainty=uncertainty, rank=rank)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.semantic:
+            x = self.semantic_att(x)
+        if self.positional:
+            x = self.positional_att(x)
+        if self.slice:
+            x = self.slice_att(x)
+        return x
+
+
+class CSAMSliceAggregation(nn.Module):
+    """使用 CSAM 对每个 batch、每个 DCE phase 的 K 个相邻切片做 cross-slice attention。
+
+    输入 features: [B,K,T,C,H,W]。
+    输出 out: [B,T,C,H,W]，可选择中心切片特征或 K 切片均值特征。
+    """
+
+    def __init__(
+        self,
+        num_slices: int,
+        channels: int,
+        aggregate: str = "center",
+        disabled: bool = False,
+        semantic: bool = True,
+        positional: bool = True,
+        slice_attention: bool = True,
+        uncertainty: bool = False,
+        rank: int = 5,
+    ) -> None:
+        super().__init__()
+        if aggregate not in {"center", "mean"}:
+            raise ValueError(f"Unknown CSAM aggregate mode: {aggregate}")
+        self.num_slices = num_slices
+        self.aggregate = aggregate
+        self.disabled = disabled
+        self.csam = CSAM(
+            num_slices=num_slices,
+            num_channels=channels,
+            semantic=semantic,
+            positional=positional,
+            slice=slice_attention,
+            uncertainty=uncertainty,
+            rank=rank,
+        )
+        self.last_slice_attention_map = None
+
+    def forward(self, features: torch.Tensor):
+        if features.ndim != 6:
+            raise ValueError(f"CSAMSliceAggregation expects [B,K,T,C,H,W], got {tuple(features.shape)}")
+        b, k, t, c, h, w = features.shape
+        if k != self.num_slices:
+            raise ValueError(f"CSAM expected {self.num_slices} slices, got {k}")
+        if self.disabled or k == 1:
+            center = features[:, k // 2]
+            attn = features.new_ones((b, k, t, 1, 1, 1)) / float(k)
+            self.last_slice_attention_map = attn.detach()
+            return center, attn
+
+        out = features.new_empty((b, t, c, h, w))
+        attn_maps = features.new_empty((b, k, t, 1, 1, 1))
+        for batch_idx in range(b):
+            for phase_idx in range(t):
+                feat = features[batch_idx, :, phase_idx]
+                enhanced = self.csam(feat)
+                if self.aggregate == "center":
+                    out[batch_idx, phase_idx] = enhanced[k // 2]
+                else:
+                    out[batch_idx, phase_idx] = enhanced.mean(dim=0)
+                if self.csam.slice:
+                    attn = self.csam.slice_att.last_attention_map
+                    if attn is None:
+                        attn = features.new_ones((k, 1, 1, 1)) / float(k)
+                    attn_maps[batch_idx, :, phase_idx] = attn.to(device=features.device, dtype=features.dtype)
+                else:
+                    attn_maps[batch_idx, :, phase_idx] = features.new_ones((k, 1, 1, 1)) / float(k)
+        self.last_slice_attention_map = attn_maps.detach()
+        return out, attn_maps
+
+
 class KineticPriorBranch25D(nn.Module):
     """编码伪动力学图，并融合其相邻切片上下文。
 
@@ -364,7 +557,12 @@ class PixelWisePhaseAttention25D(nn.Module):
             nn.Conv2d(channels, 1, kernel_size=1),
         )
 
-    def forward(self, phase_feats: torch.Tensor, kinetic_feat: torch.Tensor):
+    def forward(
+        self,
+        phase_feats: torch.Tensor,
+        sub_maps: Optional[torch.Tensor] = None,
+        kinetic_feat: Optional[torch.Tensor] = None,
+    ):
         """把 [B,T,C,H,W] phase feature 融合为 [B,C,H,W]。"""
         # phase_feats 表示每个 DCE phase 的中心切片上下文特征：【B,T,C,H,W】。
         b, t, c, h, w = phase_feats.shape
@@ -372,7 +570,9 @@ class PixelWisePhaseAttention25D(nn.Module):
             # 关闭 attention 或只有一个 phase 时，使用均匀权重：【B,T,1,H,W】。
             attn = phase_feats.new_full((b, t, 1, h, w), 1.0 / float(t))
             # 均值融合 phase：【B,T,C,H,W】->【B,C,H,W】。
-            return phase_feats.mean(dim=1), attn
+            return phase_feats.mean(dim=1), attn, {"feature_score": None}
+        if kinetic_feat is None:
+            kinetic_feat = phase_feats.mean(dim=1)
         # 将 kinetic feature 扩展到每个 phase，与 phase feature 对齐：
         # 【B,C,H,W】->【B,1,C,H,W】->【B,T,C,H,W】。
         kinetic = kinetic_feat.unsqueeze(1).expand(-1, t, -1, -1, -1)
@@ -384,7 +584,186 @@ class PixelWisePhaseAttention25D(nn.Module):
         # 在 T 维 softmax，保证同一像素所有 phase 权重和为 1：【B,T,H,W】->【B,T,1,H,W】。
         attn = torch.softmax(logits, dim=1).unsqueeze(2)
         # 加权融合所有 phase 的特征：【B,T,C,H,W】*【B,T,1,H,W】-> sum(T) ->【B,C,H,W】。
-        return (phase_feats * attn).sum(dim=1), attn
+        return (phase_feats * attn).sum(dim=1), attn, {"feature_score": logits.detach()}
+
+
+class PhaseDifferenceWeightingAttention(nn.Module):
+    """Phase Difference Weighting Attention（PDWA）。
+
+    该模块借鉴 LesiOnTime 的 temporal difference weighting 思想，但迁移到单次
+    DCE-MRI 多增强时相：用 raw phase feature、对应 subtraction/enhancement map
+    和整体 kinetic prior feature 共同生成像素级 phase attention，并用 phase-fused
+    feature 与 kinetic feature 的差异进一步增强变化显著区域。
+    """
+
+    def __init__(
+        self,
+        channels: int,
+        num_phases: int,
+        use_enhancement_prior: bool = True,
+        use_kinetic_bias: bool = True,
+        use_difference_refinement: bool = True,
+        residual_mean_weight: float = 0.5,
+        lambda_enh_init: float = 1.0,
+        gamma_diff_init: float = 0.5,
+        disabled: bool = False,
+    ) -> None:
+        super().__init__()
+        self.channels = channels
+        self.num_phases = num_phases
+        self.use_enhancement_prior = use_enhancement_prior
+        self.use_kinetic_bias = use_kinetic_bias
+        self.use_difference_refinement = use_difference_refinement
+        self.residual_mean_weight = float(residual_mean_weight)
+        self.disabled = disabled
+
+        self.feature_score = nn.Conv2d(channels, 1, kernel_size=1)
+        hidden = max(channels // 4, 4)
+        self.enhancement_score = nn.Sequential(
+            nn.Conv2d(1, hidden, kernel_size=3, padding=1, bias=False),
+            nn.GELU(),
+            nn.Conv2d(hidden, 1, kernel_size=1),
+        )
+        self.kinetic_bias = nn.Conv2d(channels, 1, kernel_size=1)
+        self.kinetic_proj = nn.Conv2d(channels, channels, kernel_size=1)
+        self.diff_norm = nn.InstanceNorm2d(channels)
+        self.diff_gate = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+
+        self.lambda_enh = nn.Parameter(torch.tensor(float(lambda_enh_init)))
+        self.gamma_diff = nn.Parameter(torch.tensor(float(gamma_diff_init)))
+
+    def forward(
+        self,
+        phase_feats: torch.Tensor,
+        sub_maps: Optional[torch.Tensor] = None,
+        kinetic_feat: Optional[torch.Tensor] = None,
+    ):
+        """融合多时相特征。
+
+        phase_feats: [B,T,C,H,W]
+        sub_maps: [B,T_sub,H,W] 或 [B,K,T_sub,H,W]
+        kinetic_feat: [B,C,H,W]
+        """
+        assert phase_feats.ndim == 5, f"phase_feats must be [B,T,C,H,W], got {tuple(phase_feats.shape)}"
+        b, t, c, h, w = phase_feats.shape
+        assert c == self.channels, f"PDWA expected {self.channels} channels, got {c}"
+
+        if self.disabled:
+            alpha = phase_feats.new_full((b, t, 1, h, w), 1.0 / float(t))
+            fused = phase_feats.mean(dim=1)
+            return fused, alpha, {
+                "feature_score": None,
+                "enhancement_score": None,
+                "kinetic_bias": None,
+                "diff_gate": None,
+            }
+
+        # 1) feature_score：每个 phase 的 raw feature 独立用 1x1 conv 产生像素级分数。
+        flat_phase = phase_feats.reshape(b * t, c, h, w)
+        feature_score = self.feature_score(flat_phase).reshape(b, t, 1, h, w)
+        score = feature_score
+
+        # 2) enhancement_score：用 BreastDM 的 C_sub_t / enhancement map 引导时相选择。
+        enhancement_score = phase_feats.new_zeros((b, t, 1, h, w))
+        if self.use_enhancement_prior and sub_maps is not None:
+            sub = self._center_sub_maps(sub_maps)
+            if sub.shape[-2:] != (h, w):
+                sub = F.interpolate(sub, size=(h, w), mode="bilinear", align_corners=False)
+            assert sub.shape[0] == b, f"sub_maps batch mismatch: {sub.shape[0]} vs {b}"
+            t_sub = sub.shape[1]
+            sub_flat = sub.reshape(b * t_sub, 1, h, w)
+            enhancement_score = self.enhancement_score(sub_flat).reshape(b, t_sub, 1, h, w)
+            enhancement_score = self._align_phase_count(enhancement_score, t)
+            score = score + self.lambda_enh * enhancement_score
+
+        # 3) kinetic_bias：整体动力学先验对所有 phase score 提供像素级偏置。
+        kinetic_bias = phase_feats.new_zeros((b, 1, 1, h, w))
+        if self.use_kinetic_bias and kinetic_feat is not None:
+            kin = self._match_kinetic_shape(kinetic_feat, h, w)
+            assert kin.shape[:2] == (b, c), f"kinetic_feat must be [B,C,H,W], got {tuple(kin.shape)}"
+            kinetic_bias = self.kinetic_bias(kin).unsqueeze(1)
+            score = score + kinetic_bias
+
+        # 4) softmax 得到 phase attention，并加入均值残差防止 attention collapse。
+        alpha = torch.softmax(score, dim=1)
+        fused = (phase_feats * alpha).sum(dim=1)
+        if self.residual_mean_weight != 0:
+            fused = fused + self.residual_mean_weight * phase_feats.mean(dim=1)
+
+        # 5) difference refinement：F_current=phase-fused raw feature，F_prior=kinetic prior feature。
+        diff_gate = phase_feats.new_zeros((b, c, h, w))
+        if self.use_difference_refinement and kinetic_feat is not None:
+            kin = self._match_kinetic_shape(kinetic_feat, h, w)
+            kin_proj = self.kinetic_proj(kin)
+            diff = self.diff_norm(fused - kin_proj)
+            diff_gate = torch.sigmoid(self.diff_gate(diff))
+            fused = fused + self.gamma_diff * fused * diff_gate
+
+        debug = {
+            "feature_score": feature_score.detach(),
+            "enhancement_score": enhancement_score.detach(),
+            "kinetic_bias": kinetic_bias.detach(),
+            "diff_gate": diff_gate.detach(),
+            "lambda_enh": self.lambda_enh.detach(),
+            "gamma_diff": self.gamma_diff.detach(),
+        }
+        return fused, alpha, debug
+
+    @staticmethod
+    def _center_sub_maps(sub_maps: torch.Tensor) -> torch.Tensor:
+        if sub_maps.ndim == 5:
+            return sub_maps[:, sub_maps.shape[1] // 2]
+        if sub_maps.ndim == 4:
+            return sub_maps
+        raise ValueError(f"sub_maps must be [B,T,H,W] or [B,K,T,H,W], got {tuple(sub_maps.shape)}")
+
+    @staticmethod
+    def _align_phase_count(score: torch.Tensor, target_phases: int) -> torch.Tensor:
+        b, t_sub, one, h, w = score.shape
+        if t_sub == target_phases:
+            return score
+        if t_sub > target_phases:
+            return score[:, :target_phases]
+        pad = score.new_zeros((b, target_phases - t_sub, one, h, w))
+        return torch.cat([pad, score], dim=1)
+
+    @staticmethod
+    def _match_kinetic_shape(kinetic_feat: torch.Tensor, height: int, width: int) -> torch.Tensor:
+        assert kinetic_feat.ndim == 4, f"kinetic_feat must be [B,C,H,W], got {tuple(kinetic_feat.shape)}"
+        if kinetic_feat.shape[-2:] == (height, width):
+            return kinetic_feat
+        return F.interpolate(kinetic_feat, size=(height, width), mode="bilinear", align_corners=False)
+
+
+class KineticRawFusion(nn.Module):
+    """在空间编码器之前显式注入动力学先验特征。
+    
+    动力学分支具有两个互补的作用：它引导相位注意力评分，
+    并通过残差融合，作为额外的先验特征进入编码器。
+    它增强了原始图像分支，而不是替换它。
+    """
+
+    def __init__(self, channels: int, disabled: bool = False) -> None:
+        super().__init__()
+        self.disabled = disabled
+        self.fusion_conv = nn.Sequential(
+            nn.Conv2d(channels * 2, channels, kernel_size=1, bias=False),
+            nn.InstanceNorm2d(channels),
+            nn.GELU(),
+        )
+
+    def forward(self, fused_phase: torch.Tensor, kinetic_feature: torch.Tensor) -> torch.Tensor:
+        if self.disabled:
+            return fused_phase
+        if kinetic_feature.shape[-2:] != fused_phase.shape[-2:]:
+            kinetic_feature = F.interpolate(
+                kinetic_feature,
+                size=fused_phase.shape[-2:],
+                mode="bilinear",
+                align_corners=False,
+            )
+        concat = torch.cat([fused_phase, kinetic_feature], dim=1)
+        return fused_phase + self.fusion_conv(concat)
 
 
 def _window_partition(x: torch.Tensor, window_size: int) -> torch.Tensor:
@@ -754,6 +1133,16 @@ class KPTA25DNet(nn.Module):
         normalize_after_kinetic: bool = True,
         normalize_kinetic: bool = True,
         slice_context_mode: str = "attention",
+        slice_attention_type: str = "simple",
+        csam_aggregate: str = "center",
+        csam_uncertainty: bool = False,
+        phase_attention_type: str = "pdwa",
+        use_enhancement_prior: bool = True,
+        use_kinetic_bias: bool = True,
+        use_difference_refinement: bool = True,
+        residual_mean_weight: float = 0.5,
+        lambda_enh_init: float = 1.0,
+        gamma_diff_init: float = 0.5,
         phase_attention: bool = True,
         use_uncertainty_head: bool = True,
         use_boundary_head: bool = True,
@@ -776,10 +1165,18 @@ class KPTA25DNet(nn.Module):
         self.num_slices = num_slices
         # 控制推理时返回 dict 还是只返回 seg_logits。
         self.return_dict = return_dict
+        if slice_attention_type not in {"simple", "csam"}:
+            raise ValueError(f"slice_attention_type must be 'simple' or 'csam', got {slice_attention_type}")
+        self.slice_attention_type = slice_attention_type
+        if phase_attention_type not in {"pixelwise", "pdwa"}:
+            raise ValueError(f"phase_attention_type must be 'pixelwise' or 'pdwa', got {phase_attention_type}")
+        self.phase_attention_type = phase_attention_type
+        self.phase_indices = PhaseIndices.from_config(phase_indices)
         # 以下 disable_* 都是消融实验开关。
         self.disable_kinetic_maps = bool(ablation.get("disable_kinetic_maps", False))
         self.disable_slice_context = bool(ablation.get("disable_slice_context", False)) or slice_context_mode == "none"
         self.disable_phase_attention = bool(ablation.get("disable_pixelwise_phase_attention", False)) or not phase_attention
+        self.disable_kinetic_raw_fusion = bool(ablation.get("disable_kinetic_raw_fusion", False))
         self.disable_transformer = bool(ablation.get("disable_transformer_bottleneck", False))
         self.disable_boundary = bool(ablation.get("disable_boundary_head", False)) or not use_boundary_head
         self.disable_uncertainty = bool(ablation.get("disable_uncertainty_head", False)) or not use_uncertainty_head
@@ -796,16 +1193,46 @@ class KPTA25DNet(nn.Module):
         )
         # slice_stem 对每个 slice/phase 共享提取浅层特征。
         self.slice_stem = SliceWiseCNNStem(base_channels)
-        # slice_agg 融合相邻切片上下文。
-        self.slice_agg = SliceContextAggregation(base_channels, disabled=self.disable_slice_context)
+        # slice_agg 融合相邻切片上下文。simple 保留原像素级 slice attention；
+        # csam 使用语义/空间/切片联合注意力增强相邻切片，再取中心或均值聚合。
+        if self.slice_attention_type == "csam":
+            self.slice_agg = CSAMSliceAggregation(
+                num_slices=num_slices,
+                channels=base_channels,
+                aggregate=csam_aggregate,
+                disabled=self.disable_slice_context,
+                uncertainty=csam_uncertainty,
+            )
+        else:
+            self.slice_agg = SliceContextAggregation(base_channels, disabled=self.disable_slice_context)
+        self.csam_enabled = self.slice_attention_type == "csam" and not self.disable_slice_context
         # kinetic_branch 编码 pseudo-kinetic maps。
         self.kinetic_branch = KineticPriorBranch25D(
             self.kinetic_builder.expected_channels,
             base_channels,
             disabled_slice_context=self.disable_slice_context,
         )
-        # phase_attention 负责像素级 DCE phase 融合。
-        self.phase_attention = PixelWisePhaseAttention25D(base_channels, in_phases, disabled=self.disable_phase_attention)
+        # phase_attention 负责像素级 DCE phase 融合。pixelwise 保留原注意力；
+        # pdwa 使用 phase difference weighting，把 C_sub_t 和 kinetic feature 纳入时相权重。
+        if self.phase_attention_type == "pdwa":
+            self.phase_attention = PhaseDifferenceWeightingAttention(
+                base_channels,
+                in_phases,
+                use_enhancement_prior=use_enhancement_prior,
+                use_kinetic_bias=use_kinetic_bias,
+                use_difference_refinement=use_difference_refinement,
+                residual_mean_weight=residual_mean_weight,
+                lambda_enh_init=lambda_enh_init,
+                gamma_diff_init=gamma_diff_init,
+                disabled=self.disable_phase_attention,
+            )
+        else:
+            self.phase_attention = PixelWisePhaseAttention25D(
+                base_channels,
+                in_phases,
+                disabled=self.disable_phase_attention,
+            )
+        self.kinetic_raw_fusion = KineticRawFusion(base_channels, disabled=self.disable_kinetic_raw_fusion)
         # hybrid_encoder 是 CNN encoder + Swin bottleneck。
         self.hybrid_encoder = HybridEncoder25D(
             base_channels,
@@ -864,7 +1291,16 @@ class KPTA25DNet(nn.Module):
         kinetic_feature, kinetic_slice_attention = self.kinetic_branch(kinetic_maps)
         # 用 kinetic feature 引导像素级 phase attention：
         # 【B,T,C,H,W】+【B,C,H,W】->【B,C,H,W】。
-        fused0, phase_attention_maps = self.phase_attention(context_features, kinetic_feature)
+        sub_maps = self._select_phase_maps(x, self.phase_indices.subtraction)
+        fused_phase, phase_attention_maps, phase_debug = self.phase_attention(
+            context_features,
+            sub_maps=sub_maps,
+            kinetic_feat=kinetic_feature,
+        )
+        # Kinetic prior has two roles: guide phase attention and explicitly
+        # enter the encoder through residual raw/kinetic fusion. It augments,
+        # rather than replaces, the raw image branch.
+        fused0 = self.kinetic_raw_fusion(fused_phase, kinetic_feature)
 
         # CNN encoder + Swin bottleneck 产生多尺度 skip features：
         # 【B,C,H,W】-> [【B,C,H,W】, 【B,2C,H/2,W/2】, ..., 【B,16C,H/16,W/16】]。
@@ -915,15 +1351,43 @@ class KPTA25DNet(nn.Module):
             "uncertainty_logits": uncertainty_logits,
             "uncertainty_map": uncertainty_map,
             "kinetic_maps": kinetic_maps,
+            "phase_attention": phase_attention_maps,
             "phase_attention_maps": [phase_attention_maps],
             "attention_maps": [phase_attention_maps],
             "slice_attention_maps": [slice_attention_maps, kinetic_slice_attention],
+            "slice_attention_type": self.slice_attention_type,
+            "csam_enabled": self.csam_enabled,
+            "phase_attention_type": self.phase_attention_type,
+            "pdwa_debug": phase_debug if self.phase_attention_type == "pdwa" else {},
             "debug": {
                 "num_slices": x.shape[1],
                 "num_phases": x.shape[2],
                 "num_kinetic_maps": kinetic_maps.shape[2],
+                "slice_attention_type": self.slice_attention_type,
+                "csam_enabled": self.csam_enabled,
+                "phase_attention_type": self.phase_attention_type,
+                "sub_maps_shape": None if sub_maps is None else tuple(sub_maps.shape),
+                "disable_kinetic_raw_fusion": self.disable_kinetic_raw_fusion,
+                "fused_phase_shape": tuple(fused_phase.shape),
+                "kinetic_feature_shape": tuple(kinetic_feature.shape),
+                "fused0_shape": tuple(fused0.shape),
+                "fused_phase_l2": fused_phase.detach().float().norm(dim=1).mean(),
+                "kinetic_feature_l2": kinetic_feature.detach().float().norm(dim=1).mean(),
+                "fused0_l2": fused0.detach().float().norm(dim=1).mean(),
             },
         }
+
+    @staticmethod
+    def _select_phase_maps(x: torch.Tensor, indices) -> Optional[torch.Tensor]:
+        """从 2.5D 输入的 T 维读取指定 phase。
+
+        输入 x: [B,K,T,H,W]；返回 [B,K,T_selected,H,W]。如果配置索引全越界，
+        返回 None，让 PDWA 自动退化为无 enhancement prior 的稳定路径。
+        """
+        valid = [idx for idx in indices if 0 <= idx < x.shape[2]]
+        if not valid:
+            return None
+        return x[:, :, valid]
 
 
 class SwinHR(KPTA25DNet):

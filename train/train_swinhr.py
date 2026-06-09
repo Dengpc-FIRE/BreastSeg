@@ -457,6 +457,7 @@ def main():
     parser.add_argument('--disable_kinetic_loss', action='store_true')
     parser.add_argument('--disable_pseudo_kinetic_maps', action='store_true')
     parser.add_argument('--disable_pixelwise_phase_attention', action='store_true')
+    parser.add_argument('--disable_kinetic_raw_fusion', action='store_true')
     parser.add_argument('--disable_uncertainty_refinement', action='store_true')
     parser.add_argument('--disable_uncertainty_head', action='store_true')
     parser.add_argument('--disable_attention_smooth_loss', action='store_true')
@@ -478,6 +479,7 @@ def main():
             "disable_kinetic_loss",
             "disable_pseudo_kinetic_maps",
             "disable_pixelwise_phase_attention",
+            "disable_kinetic_raw_fusion",
             "disable_uncertainty_refinement",
             "disable_uncertainty_head",
             "disable_attention_smooth_loss",
