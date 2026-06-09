@@ -80,7 +80,7 @@ class ConBNActBlock(nn.Module):
 
 class UpBlock(nn.Module):
     def __init__(self, in_channels1, in_channels2, out_channels,
-                 bilinear=True, dropout_p = 0.5):
+                 bilinear=True, dropout_p = 0.5, use_residual_projection=True):
         super(UpBlock, self).__init__()
         self.bilinear = bilinear
         if bilinear:
@@ -88,7 +88,14 @@ class UpBlock(nn.Module):
             self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         else:
             self.up = nn.ConvTranspose2d(in_channels1, in_channels2, kernel_size=2, stride=2)
-        self.conv = ConBNActBlock(in_channels2 * 2, out_channels, dropout_p)
+        residual_channels = in_channels2 * 2
+        self.conv = ConBNActBlock(residual_channels, out_channels, dropout_p)
+        if residual_channels == out_channels:
+            self.res_proj = nn.Identity()
+        elif use_residual_projection:
+            self.res_proj = nn.Conv2d(residual_channels, out_channels, kernel_size=1, padding=0)
+        else:
+            self.res_proj = None
 
     def forward(self, x1, x2):
         if self.bilinear:
@@ -96,51 +103,72 @@ class UpBlock(nn.Module):
         x1    = self.up(x1)
         x_cat = torch.cat([x2, x1], dim=1)
         y     = self.conv(x_cat)
-        return y + x_cat
+        if self.res_proj is None:
+            return y
+        return y + self.res_proj(x_cat)
 
 class DownBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, dropout_p):
+    def __init__(self, in_channels, out_channels, dropout_p, use_residual_projection=True):
         super(DownBlock, self).__init__()
         self.maxpool = nn.MaxPool2d(2)
         self.avgpool = nn.AvgPool2d(2)
-        self.conv    = ConBNActBlock(2 * in_channels, out_channels, dropout_p)
+        residual_channels = 2 * in_channels
+        self.conv    = ConBNActBlock(residual_channels, out_channels, dropout_p)
+        if residual_channels == out_channels:
+            self.res_proj = nn.Identity()
+        elif use_residual_projection:
+            self.res_proj = nn.Conv2d(residual_channels, out_channels, kernel_size=1, padding=0)
+        else:
+            self.res_proj = None
 
     def forward(self, x):
         x_max = self.maxpool(x)
         x_avg = self.avgpool(x)
         x_cat = torch.cat([x_max, x_avg], dim=1)
         y     = self.conv(x_cat)
-        return y + x_cat
+        if self.res_proj is None:
+            return y
+        return y + self.res_proj(x_cat)
 
 class PDFUNet (nn.Module):
-    def __init__(self):
+    def __init__(
+        self,
+        in_channels: int = 1,
+        num_classes: int = 1,
+        feature_channels = [32, 64, 128, 256, 512],
+        bilinear: bool = True,
+        dropout = [0.0, 0.0, 0.3, 0.4, 0.5],
+        use_residual_projection: bool = True,
+    ):
         super(PDFUNet , self).__init__()
-        self.in_chns   = 1
-        self.f_chan   = [32, 64, 128, 256, 512]
-        self.n_class   = 1
-        self.bilinear  = True
-        self.dropout   = [0.0, 0.0, 0.3, 0.4, 0.5]
+        self.in_chns   = int(in_channels)
+        self.f_chan   = list(feature_channels)
+        self.n_class   = int(num_classes)
+        self.bilinear  = bool(bilinear)
+        self.dropout   = list(dropout)
+        self.use_residual_projection = bool(use_residual_projection)
         assert(len(self.f_chan) == 5)
+        assert(len(self.dropout) == 5)
 
         f0_half = int(self.f_chan[0] / 2)
         f1_half = int(self.f_chan[1] / 2)
         f2_half = int(self.f_chan[2] / 2)
         f3_half = int(self.f_chan[3] / 2)
         self.in_conv= ConBNActBlock(self.in_chns, self.f_chan[0], self.dropout[0])
-        self.down1  = DownBlock(self.f_chan[0], self.f_chan[1], self.dropout[1])
-        self.down2  = DownBlock(self.f_chan[1], self.f_chan[2], self.dropout[2])
-        self.down3  = DownBlock(self.f_chan[2], self.f_chan[3], self.dropout[3])
-        self.down4  = DownBlock(self.f_chan[3], self.f_chan[4], self.dropout[4])
+        self.down1  = DownBlock(self.f_chan[0], self.f_chan[1], self.dropout[1], self.use_residual_projection)
+        self.down2  = DownBlock(self.f_chan[1], self.f_chan[2], self.dropout[2], self.use_residual_projection)
+        self.down3  = DownBlock(self.f_chan[2], self.f_chan[3], self.dropout[3], self.use_residual_projection)
+        self.down4  = DownBlock(self.f_chan[3], self.f_chan[4], self.dropout[4], self.use_residual_projection)
 
         self.bridge0= ConvLayer(self.f_chan[0], f0_half)
         self.bridge1= ConvLayer(self.f_chan[1], f1_half)
         self.bridge2= ConvLayer(self.f_chan[2], f2_half)
         self.bridge3= ConvLayer(self.f_chan[3], f3_half)
 
-        self.up1    = UpBlock(self.f_chan[4], f3_half, self.f_chan[3], dropout_p = self.dropout[3])
-        self.up2    = UpBlock(self.f_chan[3], f2_half, self.f_chan[2], dropout_p = self.dropout[2])
-        self.up3    = UpBlock(self.f_chan[2], f1_half, self.f_chan[1], dropout_p = self.dropout[1])
-        self.up4    = UpBlock(self.f_chan[1], f0_half, self.f_chan[0], dropout_p = self.dropout[0])
+        self.up1    = UpBlock(self.f_chan[4], f3_half, self.f_chan[3], self.bilinear, self.dropout[3], self.use_residual_projection)
+        self.up2    = UpBlock(self.f_chan[3], f2_half, self.f_chan[2], self.bilinear, self.dropout[2], self.use_residual_projection)
+        self.up3    = UpBlock(self.f_chan[2], f1_half, self.f_chan[1], self.bilinear, self.dropout[1], self.use_residual_projection)
+        self.up4    = UpBlock(self.f_chan[1], f0_half, self.f_chan[0], self.bilinear, self.dropout[0], self.use_residual_projection)
 
         f4 = self.f_chan[4]
         aspp_chns = [int(f4 / 4), int(f4 / 4), int(f4 / 4), int(f4 / 4)]

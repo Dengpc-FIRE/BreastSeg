@@ -126,6 +126,11 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
         num_workers=int(cfg["train"]["num_workers"]),
         pin_memory=torch.cuda.is_available(),
     )
+    print(
+        f"[Fold {fold_idx}] data | train_samples={len(train_ds)} train_batches={len(train_loader)} "
+        f"val_samples={len(val_ds)} val_batches={len(val_loader)} batch_size={int(cfg['train']['batch_size'])}",
+        flush=True,
+    )
     val_loader = DataLoader(
         val_ds,
         batch_size=int(cfg["train"]["batch_size"]),
@@ -166,8 +171,8 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
     best_metrics = None
 
     for epoch in range(1, int(cfg["train"]["epochs"]) + 1):
-        train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device)
-        val_loss, val_eval = evaluate(model, val_loader, loss_fn, device, cfg)
+        train_loss = train_one_epoch(model, train_loader, optimizer, loss_fn, device, fold_idx, epoch)
+        val_loss, val_eval = evaluate(model, val_loader, loss_fn, device, cfg, fold_idx, epoch)
         val_metrics = val_eval["slice_level"]
         scheduler.step(val_metrics["dice"])
         lr = optimizer.param_groups[0]["lr"]
@@ -214,10 +219,11 @@ def run_fold(fold_idx: int, train_indices, val_indices, pairs, cfg, output_dir: 
     return summary
 
 
-def train_one_epoch(model, loader, optimizer, loss_fn, device) -> float:
+def train_one_epoch(model, loader, optimizer, loss_fn, device, fold_idx: int = None, epoch: int = None) -> float:
     model.train()
     losses = []
-    for batch in tqdm(loader, desc="train", leave=False):
+    desc = "train" if fold_idx is None else f"fold{fold_idx} epoch{epoch:03d} train"
+    for batch in tqdm(loader, desc=desc, leave=False):
         images = batch["image"].to(device, dtype=torch.float32)
         masks = batch["mask"].to(device, dtype=torch.float32)
         optimizer.zero_grad(set_to_none=True)
@@ -229,13 +235,14 @@ def train_one_epoch(model, loader, optimizer, loss_fn, device) -> float:
     return float(np.mean(losses)) if losses else 0.0
 
 
-def evaluate(model, loader, loss_fn, device, cfg) -> Dict:
+def evaluate(model, loader, loss_fn, device, cfg, fold_idx: int = None, epoch: int = None) -> Dict:
     model.eval()
     losses, rows, preds, gts, paths = [], [], [], [], []
     threshold = float(cfg["eval"]["threshold"])
     hd_empty_value = float(cfg["eval"].get("hd_empty_value", cfg["data"]["image_size"]))
+    desc = "eval" if fold_idx is None else f"fold{fold_idx} epoch{epoch:03d} val"
     with torch.no_grad():
-        for batch in tqdm(loader, desc="eval", leave=False):
+        for batch in tqdm(loader, desc=desc, leave=False):
             images = batch["image"].to(device, dtype=torch.float32)
             masks = batch["mask"].to(device, dtype=torch.float32)
             logits = model(images)
