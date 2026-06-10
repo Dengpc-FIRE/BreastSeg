@@ -114,8 +114,17 @@ def train_one_run(cfg, run_dir: Path, train_pairs, val_pairs, test_pairs, run_na
     train_loader = make_loader(train_pairs, cfg, shuffle=True)
     val_loader = make_loader(val_pairs, cfg, shuffle=False)
     test_loader = make_loader(test_pairs, cfg, shuffle=False)
+    validate_loader_shape(run_name, train_loader, int(cfg["model"]["in_channels"]))
 
     model = build_pdfunet(cfg).to(device)
+    first_conv = next((m for m in model.modules() if isinstance(m, torch.nn.Conv2d)), None)
+    if first_conv is not None and int(first_conv.in_channels) != int(cfg["model"]["in_channels"]):
+        raise ValueError(
+            f"Model first Conv2d expects {first_conv.in_channels} channels, "
+            f"config has {cfg['model']['in_channels']}."
+        )
+    if first_conv is not None:
+        print(f"[{run_name}] model | first_conv_in_channels={first_conv.in_channels}", flush=True)
     loss_fn = build_loss(cfg)
     optimizer = torch.optim.Adam(model.parameters(), lr=float(cfg["train"]["lr"]))
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -210,6 +219,28 @@ def make_loader(pairs, cfg, shuffle: bool) -> DataLoader:
         shuffle=shuffle,
         num_workers=int(cfg["train"]["num_workers"]),
         pin_memory=torch.cuda.is_available(),
+    )
+
+
+def validate_loader_shape(run_name: str, loader: DataLoader, expected_channels: int) -> None:
+    sample = loader.dataset[0]
+    image = sample["image"]
+    mask = sample["mask"]
+    if image.ndim != 3 or int(image.shape[0]) != int(expected_channels):
+        raise ValueError(f"{run_name} sample image must be [{expected_channels},H,W], got {tuple(image.shape)}")
+    if mask.ndim != 3 or int(mask.shape[0]) != 1:
+        raise ValueError(f"{run_name} sample mask must be [1,H,W], got {tuple(mask.shape)}")
+    first_batch = next(iter(loader))
+    batch_image = first_batch["image"]
+    batch_mask = first_batch["mask"]
+    if batch_image.ndim != 4 or int(batch_image.shape[1]) != int(expected_channels):
+        raise ValueError(f"{run_name} batch image must be [B,{expected_channels},H,W], got {tuple(batch_image.shape)}")
+    if batch_mask.ndim != 4 or int(batch_mask.shape[1]) != 1:
+        raise ValueError(f"{run_name} batch mask must be [B,1,H,W], got {tuple(batch_mask.shape)}")
+    print(
+        f"[{run_name}] shape | sample_image={tuple(image.shape)} sample_mask={tuple(mask.shape)} "
+        f"batch_image={tuple(batch_image.shape)} batch_mask={tuple(batch_mask.shape)}",
+        flush=True,
     )
 
 
@@ -309,4 +340,3 @@ def load_config(path: str):
 
 if __name__ == "__main__":
     main()
-

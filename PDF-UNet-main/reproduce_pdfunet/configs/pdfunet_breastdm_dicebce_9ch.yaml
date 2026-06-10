@@ -1,0 +1,67 @@
+experiment:
+  name: "pdfunet_breastdm_dicebce_9ch"
+  seed: 42
+  device: "cuda"
+
+data:
+  dataset: "BreastDM"
+  source_type: "seg"
+  seg_root: "../seg"
+  label_phase: "VIBRANT"
+  train_path: "./processed_breastdm_9ch/train"
+  val_path: "./processed_breastdm_9ch/val"
+  test_path: "./processed_breastdm_9ch/test"
+  image_size: 128
+  input_mode: "multi_phase"
+  in_channels: 9
+  normalize: "minmax"
+  mask_threshold: 0
+  use_center_slice_only: true
+
+cross_validation:
+  enabled: false
+  n_splits: 5
+  split_level: "patient"
+  train_ratio: 0.70
+  val_ratio: 0.15
+  test_ratio: 0.15
+  shuffle: true
+  seed: 42
+  save_splits: true
+
+model:
+  name: "PDFUNet"
+  in_channels: 9
+  num_classes: 1
+  feature_channels: [32, 64, 128, 256, 512]
+  bilinear: true
+  dropout: [0.0, 0.0, 0.3, 0.4, 0.5]
+  use_residual_projection: true
+
+train:
+  epochs: 100
+  batch_size: 4
+  optimizer: "Adam"
+  lr: 0.0001
+  scheduler: "ReduceLROnPlateau"
+  scheduler_mode: "max"
+  scheduler_monitor: "val_dice"
+  scheduler_patience: 10
+  num_workers: 4
+  save_best_by: "val_dice"
+
+loss:
+  name: "DiceBCE"
+  dice_weight: 1.0
+  bce_weight: 1.0
+
+eval:
+  threshold: 0.5
+  metrics: ["dice", "iou", "recall", "precision", "accuracy", "hd95"]
+  empty_mask_policy: "explicit"
+  hd95_empty_value: 128.0
+
+output:
+  output_dir: "./results_pdfunet_breastdm/dicebce_9ch"
+  save_predictions: true
+  save_logs: true
