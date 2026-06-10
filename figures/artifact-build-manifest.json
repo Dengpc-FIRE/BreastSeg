@@ -1,0 +1,27 @@
+{
+  "output": "C:\\Users\\dengp\\project\\BreastSeg\\figures\\scheme_d_sa_kpta_25d_architecture_editable.pptx",
+  "outputBytes": 26834,
+  "slideCount": 1,
+  "slideSize": {
+    "width": 1600,
+    "height": 900
+  },
+  "previewDir": "C:\\Users\\dengp\\project\\BreastSeg\\outputs\\manual-20260610-kpta-editable\\presentations\\sa-kpta-editable\\preview",
+  "previewPaths": [
+    "C:\\Users\\dengp\\project\\BreastSeg\\outputs\\manual-20260610-kpta-editable\\presentations\\sa-kpta-editable\\preview\\slide-01.png"
+  ],
+  "layoutDir": "C:\\Users\\dengp\\project\\BreastSeg\\outputs\\manual-20260610-kpta-editable\\presentations\\sa-kpta-editable\\layout",
+  "layoutResults": [
+    {
+      "layoutPath": "C:\\Users\\dengp\\project\\BreastSeg\\outputs\\manual-20260610-kpta-editable\\presentations\\sa-kpta-editable\\layout\\slide-01.layout.json"
+    }
+  ],
+  "slides": [
+    {
+      "index": 1,
+      "requestedSlideNumber": 1,
+      "modulePath": "C:\\Users\\dengp\\project\\BreastSeg\\outputs\\manual-20260610-kpta-editable\\presentations\\sa-kpta-editable\\slides\\slide-01.mjs",
+      "exportName": "default"
+    }
+  ]
+}

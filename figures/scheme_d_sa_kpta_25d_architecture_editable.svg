@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+<defs>
+<marker id="arrow-172033" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#172033"/></marker>
+<marker id="arrow-2463C7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2463C7"/></marker>
+<marker id="arrow-F07A24" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#F07A24"/></marker>
+<marker id="arrow-7A4CC2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7A4CC2"/></marker>
+<marker id="arrow-168B91" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#168B91"/></marker>
+<marker id="arrow-D94747" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#D94747"/></marker>
+<marker id="arrow-AAB6C8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#AAB6C8"/></marker>
+</defs><rect width="1600" height="900" fill="#FFFFFF"/>
+<text x="34" y="48" font-family="Arial, Helvetica, sans-serif" font-size="31" fill="#172033" font-weight="700" text-anchor="start">SA-KPTA-Net: Slice-Aware 2.5D Kinetic Prior-Guided Temporal Attention Network</text>
+<text x="1560" y="46" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#526078" font-weight="400" text-anchor="end">Scheme D · Fully editable vector architecture</text>
+<rect x="20" y="95" width="185" height="615" rx="14" fill="#FFFFFF" stroke="#172033" stroke-width="2"/>
+<text x="112" y="88" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#172033" font-weight="700" text-anchor="middle">MULTI-PHASE 2.5D INPUT</text>
+<text x="112" y="132" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#172033" font-weight="700" text-anchor="middle">Three neighboring slices</text>
+<text x="48" y="225" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#172033" font-weight="700" text-anchor="middle">z − 1</text>
+<rect x="72" y="170" width="92" height="92" rx="8" fill="#DCE3EB" stroke="#172033" stroke-width="1.5"/>
+<ellipse cx="118" cy="216" rx="29" ry="29" fill="#68778C"/>
+<ellipse cx="118" cy="216" rx="14" ry="20" fill="#E8EDF3"/>
+<ellipse cx="130" cy="213" rx="5" ry="7" fill="#D94747"/>
+<rect x="152" y="187" width="18" height="56" rx="1" fill="#EAF2FF" stroke="#2463C7" stroke-width="1"/>
+<rect x="157" y="191" width="18" height="56" rx="1" fill="#EAF2FF" stroke="#2463C7" stroke-width="1"/>
+<rect x="162" y="195" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<rect x="167" y="199" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<rect x="172" y="203" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<text x="48" y="390" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#172033" font-weight="700" text-anchor="middle">z</text>
+<rect x="72" y="335" width="92" height="92" rx="8" fill="#DCE3EB" stroke="#172033" stroke-width="1.5"/>
+<ellipse cx="118" cy="381" rx="29" ry="29" fill="#68778C"/>
+<ellipse cx="118" cy="381" rx="14" ry="20" fill="#E8EDF3"/>
+<ellipse cx="130" cy="378" rx="5" ry="7" fill="#D94747"/>
+<rect x="152" y="352" width="18" height="56" rx="1" fill="#EAF2FF" stroke="#2463C7" stroke-width="1"/>
+<rect x="157" y="356" width="18" height="56" rx="1" fill="#EAF2FF" stroke="#2463C7" stroke-width="1"/>
+<rect x="162" y="360" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<rect x="167" y="364" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<rect x="172" y="368" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<text x="48" y="555" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#172033" font-weight="700" text-anchor="middle">z + 1</text>
+<rect x="72" y="500" width="92" height="92" rx="8" fill="#DCE3EB" stroke="#172033" stroke-width="1.5"/>
+<ellipse cx="118" cy="546" rx="29" ry="29" fill="#68778C"/>
+<ellipse cx="118" cy="546" rx="14" ry="20" fill="#E8EDF3"/>
+<ellipse cx="130" cy="543" rx="5" ry="7" fill="#D94747"/>
+<rect x="152" y="517" width="18" height="56" rx="1" fill="#EAF2FF" stroke="#2463C7" stroke-width="1"/>
+<rect x="157" y="521" width="18" height="56" rx="1" fill="#EAF2FF" stroke="#2463C7" stroke-width="1"/>
+<rect x="162" y="525" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<rect x="167" y="529" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<rect x="172" y="533" width="18" height="56" rx="1" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<text x="112" y="650" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#526078" font-weight="400" text-anchor="middle">Pre · Post1–8 · SUB1–8</text>
+<text x="112" y="686" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#172033" font-weight="700" text-anchor="middle">X ∈ ℝ B×3×17×H×W</text>
+<rect x="225" y="95" width="510" height="310" rx="14" fill="#FFFFFF" stroke="#2463C7" stroke-width="2"/>
+<text x="480" y="88" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#2463C7" font-weight="700" text-anchor="middle">SLICE-AWARE SPATIOTEMPORAL REPRESENTATION</text>
+<rect x="242" y="130" width="132" height="235" rx="12" fill="#EAF2FF" stroke="#2463C7" stroke-width="1.5"/>
+<text x="308" y="162" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#2463C7" font-weight="700" text-anchor="middle">
+<tspan x="308" dy="0">Shared Slice-wise</tspan>
+<tspan x="308" dy="22">CNN Stem</tspan>
+</text>
+<rect x="295" y="203" width="38" height="54" rx="1" fill="#76A5EA" stroke="#FFFFFF" stroke-width="1"/>
+<rect x="290" y="207" width="38" height="54" rx="1" fill="#76A5EA" stroke="#FFFFFF" stroke-width="1"/>
+<rect x="285" y="211" width="38" height="54" rx="1" fill="#76A5EA" stroke="#FFFFFF" stroke-width="1"/>
+<rect x="280" y="215" width="38" height="54" rx="1" fill="#76A5EA" stroke="#FFFFFF" stroke-width="1"/>
+<text x="308" y="302" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#526078" font-weight="400" text-anchor="middle">
+<tspan x="308" dy="0">independent for every</tspan>
+<tspan x="308" dy="17">slice and phase</tspan>
+</text>
+<text x="308" y="348" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#172033" font-weight="700" text-anchor="middle">[B,3,17,C,H,W]</text>
+<line x1="375" y1="246" x2="397" y2="246" stroke="#2463C7" stroke-width="3" marker-end="url(#arrow-2463C7)"/>
+<rect x="400" y="130" width="140" height="235" rx="12" fill="#EAF2FF" stroke="#2463C7" stroke-width="1.5"/>
+<text x="470" y="162" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#2463C7" font-weight="700" text-anchor="middle">
+<tspan x="470" dy="0">CSAM Slice Context</tspan>
+<tspan x="470" dy="22">Aggregation</tspan>
+</text>
+<rect x="420" y="210" width="100" height="25" rx="6" fill="#FFFFFF" stroke="#2463C7" stroke-width="1"/>
+<text x="470" y="228" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#172033" font-weight="600" text-anchor="middle">semantic</text>
+<rect x="420" y="245" width="100" height="25" rx="6" fill="#FFFFFF" stroke="#2463C7" stroke-width="1"/>
+<text x="470" y="263" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#172033" font-weight="600" text-anchor="middle">spatial</text>
+<rect x="420" y="280" width="100" height="25" rx="6" fill="#FFFFFF" stroke="#2463C7" stroke-width="1"/>
+<text x="470" y="298" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#172033" font-weight="600" text-anchor="middle">inter-slice</text>
+<text x="470" y="324" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#526078" font-weight="400" text-anchor="middle">
+<tspan x="470" dy="0">aggregate z−1, z, z+1</tspan>
+<tspan x="470" dy="16">preserve T=17 phases</tspan>
+</text>
+<text x="470" y="351" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#172033" font-weight="700" text-anchor="middle">[B,17,C,H,W]</text>
+<line x1="541" y1="246" x2="558" y2="246" stroke="#2463C7" stroke-width="3" marker-end="url(#arrow-2463C7)"/>
+<rect x="560" y="118" width="160" height="265" rx="12" fill="#EAF2FF" stroke="#2463C7" stroke-width="2"/>
+<text x="640" y="151" font-family="Arial, Helvetica, sans-serif" font-size="21" fill="#2463C7" font-weight="700" text-anchor="middle">PDWA</text>
+<text x="640" y="180" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#172033" font-weight="700" text-anchor="middle">
+<tspan x="640" dy="0">Phase-Difference</tspan>
+<tspan x="640" dy="19">Weighting Attention</tspan>
+</text>
+<rect x="575" y="216" width="125" height="26" rx="6" fill="#FFFFFF" stroke="#2463C7" stroke-width="1"/>
+<text x="637" y="234" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#172033" font-weight="600" text-anchor="middle">feature score</text>
+<rect x="575" y="248" width="125" height="26" rx="6" fill="#FFFFFF" stroke="#F07A24" stroke-width="1"/>
+<text x="637" y="266" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#172033" font-weight="600" text-anchor="middle">SUB enhancement prior</text>
+<rect x="575" y="280" width="125" height="26" rx="6" fill="#FFF1E6" stroke="#F07A24" stroke-width="1"/>
+<text x="637" y="298" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#172033" font-weight="600" text-anchor="middle">kinetic bias</text>
+<text x="640" y="326" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#526078" font-weight="400" text-anchor="middle">softmax over 17 phases</text>
+<rect x="578" y="338" width="14" height="16" rx="0" fill="#153C9B" stroke="#FFFFFF" stroke-width="0.5"/>
+<rect x="592" y="338" width="14" height="16" rx="0" fill="#2463C7" stroke="#FFFFFF" stroke-width="0.5"/>
+<rect x="606" y="338" width="14" height="16" rx="0" fill="#1AA6C8" stroke="#FFFFFF" stroke-width="0.5"/>
+<rect x="620" y="338" width="14" height="16" rx="0" fill="#48C78E" stroke="#FFFFFF" stroke-width="0.5"/>
+<rect x="634" y="338" width="14" height="16" rx="0" fill="#F0C419" stroke="#FFFFFF" stroke-width="0.5"/>
+<rect x="648" y="338" width="14" height="16" rx="0" fill="#F07A24" stroke="#FFFFFF" stroke-width="0.5"/>
+<rect x="662" y="338" width="14" height="16" rx="0" fill="#D94747" stroke="#FFFFFF" stroke-width="0.5"/>
+<rect x="676" y="338" width="14" height="16" rx="0" fill="#F07A24" stroke="#FFFFFF" stroke-width="0.5"/>
+<rect x="690" y="338" width="14" height="16" rx="0" fill="#2463C7" stroke="#FFFFFF" stroke-width="0.5"/>
+<text x="640" y="375" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">Fphase</text>
+<rect x="225" y="430" width="510" height="245" rx="14" fill="#FFFFFF" stroke="#F07A24" stroke-width="2"/>
+<text x="480" y="423" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#F07A24" font-weight="700" text-anchor="middle">KINETIC PRIOR MODELING</text>
+<rect x="242" y="465" width="265" height="175" rx="12" fill="#FFF1E6" stroke="#F07A24" stroke-width="1.5"/>
+<text x="374" y="496" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#F07A24" font-weight="700" text-anchor="middle">Pseudo-Kinetic Map Builder</text>
+<rect x="253" y="525" width="38" height="54" rx="6" fill="#1A5FB4" stroke="#FFFFFF" stroke-width="1"/>
+<ellipse cx="272" cy="552" rx="8" ry="10" fill="#FFF0F0"/>
+<text x="272" y="600" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#172033" font-weight="700" text-anchor="middle">Peak</text>
+<rect x="301" y="525" width="38" height="54" rx="6" fill="#18A6A6" stroke="#FFFFFF" stroke-width="1"/>
+<ellipse cx="320" cy="552" rx="8" ry="10" fill="#FFF0F0"/>
+<text x="320" y="600" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#172033" font-weight="700" text-anchor="middle">Mean</text>
+<rect x="349" y="525" width="38" height="54" rx="6" fill="#57C785" stroke="#FFFFFF" stroke-width="1"/>
+<ellipse cx="368" cy="552" rx="8" ry="10" fill="#FFF0F0"/>
+<text x="368" y="600" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#172033" font-weight="700" text-anchor="middle">Temporal STD</text>
+<rect x="397" y="525" width="38" height="54" rx="6" fill="#F2C94C" stroke="#FFFFFF" stroke-width="1"/>
+<ellipse cx="416" cy="552" rx="8" ry="10" fill="#FFF0F0"/>
+<text x="416" y="600" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#172033" font-weight="700" text-anchor="middle">Early</text>
+<rect x="445" y="525" width="38" height="54" rx="6" fill="#F07A24" stroke="#FFFFFF" stroke-width="1"/>
+<ellipse cx="464" cy="552" rx="8" ry="10" fill="#FFF0F0"/>
+<text x="464" y="600" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#172033" font-weight="700" text-anchor="middle">Late</text>
+<text x="374" y="629" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#172033" font-weight="700" text-anchor="middle">K ∈ ℝ B×3×5×H×W</text>
+<line x1="508" y1="550" x2="526" y2="550" stroke="#F07A24" stroke-width="3" marker-end="url(#arrow-F07A24)"/>
+<rect x="528" y="465" width="185" height="175" rx="12" fill="#FFF1E6" stroke="#F07A24" stroke-width="1.5"/>
+<text x="620" y="500" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#F07A24" font-weight="700" text-anchor="middle">
+<tspan x="620" dy="0">Kinetic Prior Encoder</tspan>
+<tspan x="620" dy="23">+ Slice Aggregation</tspan>
+</text>
+<rect x="600" y="536" width="34" height="49" rx="1" fill="#F5A565" stroke="#FFFFFF" stroke-width="1"/>
+<rect x="595" y="540" width="34" height="49" rx="1" fill="#F5A565" stroke="#FFFFFF" stroke-width="1"/>
+<rect x="590" y="544" width="34" height="49" rx="1" fill="#F5A565" stroke="#FFFFFF" stroke-width="1"/>
+<rect x="585" y="548" width="34" height="49" rx="1" fill="#F5A565" stroke="#FFFFFF" stroke-width="1"/>
+<text x="620" y="629" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#172033" font-weight="700" text-anchor="middle">Fkin ∈ ℝ B×C×H×W</text>
+<line x1="638" y1="465" x2="638" y2="395" stroke="#F07A24" stroke-width="3" marker-end="url(#arrow-F07A24)"/>
+<text x="690" y="407" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#F07A24" font-weight="700" text-anchor="middle">
+<tspan x="690" dy="0">kinetic bias +</tspan>
+<tspan x="690" dy="16">difference refinement</tspan>
+</text>
+<rect x="755" y="215" width="125" height="260" rx="14" fill="#FFFFFF" stroke="#F07A24" stroke-width="2"/>
+<text x="817" y="208" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#F07A24" font-weight="700" text-anchor="middle">DUAL-ROLE FUSION</text>
+<rect x="768" y="255" width="99" height="175" rx="12" fill="#FFF1E6" stroke="#F07A24" stroke-width="2"/>
+<text x="817" y="292" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#F07A24" font-weight="700" text-anchor="middle">
+<tspan x="817" dy="0">Kinetic–Raw</tspan>
+<tspan x="817" dy="21">Residual Fusion</tspan>
+</text>
+<text x="817" y="351" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#172033" font-weight="700" text-anchor="middle">Fphase + Fkin</text>
+<circle cx="817" cy="390" r="15" fill="#FFFFFF" stroke="#F07A24" stroke-width="2"/>
+<text x="817" y="397" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#F07A24" font-weight="700" text-anchor="middle">+</text>
+<text x="817" y="424" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">F0</text>
+<polyline points="714,550 742,550 742,390 768,390" fill="none" stroke="#F07A24" stroke-width="3" marker-end="url(#arrow-F07A24)"/>
+<text x="700" y="539" font-family="Arial, Helvetica, sans-serif" font-size="11" fill="#F07A24" font-weight="700" text-anchor="middle">explicit kinetic feature</text>
+<line x1="720" y1="250" x2="768" y2="300" stroke="#2463C7" stroke-width="3" marker-end="url(#arrow-2463C7)"/>
+<rect x="900" y="95" width="350" height="580" rx="14" fill="#FFFFFF" stroke="#7A4CC2" stroke-width="2"/>
+<text x="1075" y="88" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#7A4CC2" font-weight="700" text-anchor="middle">HYBRID MULTISCALE ENCODING</text>
+<text x="988" y="140" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#2463C7" font-weight="700" text-anchor="middle">CNN Encoder</text>
+<text x="1160" y="140" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#168B91" font-weight="700" text-anchor="middle">U-Net Decoder</text>
+<rect x="925" y="158" width="130" height="38" rx="8" fill="#EAF2FF" stroke="#2463C7" stroke-width="1.5"/>
+<text x="990" y="183" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">C · H</text>
+<rect x="925" y="225" width="120" height="38" rx="8" fill="#EAF2FF" stroke="#2463C7" stroke-width="1.5"/>
+<text x="985" y="250" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">2C · H/2</text>
+<rect x="925" y="292" width="110" height="38" rx="8" fill="#EAF2FF" stroke="#2463C7" stroke-width="1.5"/>
+<text x="980" y="317" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">4C · H/4</text>
+<rect x="925" y="359" width="100" height="38" rx="8" fill="#EAF2FF" stroke="#2463C7" stroke-width="1.5"/>
+<text x="975" y="384" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">8C · H/8</text>
+<rect x="925" y="426" width="90" height="38" rx="8" fill="#F2ECFF" stroke="#7A4CC2" stroke-width="1.5"/>
+<text x="970" y="451" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">16C · H/16</text>
+<rect x="915" y="510" width="150" height="70" rx="10" fill="#F2ECFF" stroke="#7A4CC2" stroke-width="2"/>
+<text x="990" y="536" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#7A4CC2" font-weight="700" text-anchor="middle">Swin Transformer Bottleneck</text>
+<text x="990" y="559" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#172033" font-weight="600" text-anchor="middle">depth=2 · window=7 · heads=4</text>
+<rect x="1120" y="426" width="78" height="38" rx="8" fill="#E8F7F6" stroke="#168B91" stroke-width="1.5"/>
+<text x="1159" y="451" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">8C</text>
+<rect x="1120" y="359" width="78" height="38" rx="8" fill="#E8F7F6" stroke="#168B91" stroke-width="1.5"/>
+<text x="1159" y="384" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">4C</text>
+<rect x="1120" y="292" width="78" height="38" rx="8" fill="#E8F7F6" stroke="#168B91" stroke-width="1.5"/>
+<text x="1159" y="317" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">2C</text>
+<rect x="1120" y="225" width="78" height="38" rx="8" fill="#E8F7F6" stroke="#168B91" stroke-width="1.5"/>
+<text x="1159" y="250" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#172033" font-weight="700" text-anchor="middle">C</text>
+<path d="M 1055 177 H 1110 V 244" fill="none" stroke="#AAB6C8" stroke-width="2" stroke-dasharray="5 4"/>
+<path d="M 1045 244 H 1110 V 311" fill="none" stroke="#AAB6C8" stroke-width="2" stroke-dasharray="5 4"/>
+<path d="M 1035 311 H 1110 V 378" fill="none" stroke="#AAB6C8" stroke-width="2" stroke-dasharray="5 4"/>
+<path d="M 1025 378 H 1110 V 445" fill="none" stroke="#AAB6C8" stroke-width="2" stroke-dasharray="5 4"/>
+<line x1="880" y1="390" x2="912" y2="390" stroke="#172033" stroke-width="3" marker-end="url(#arrow-172033)"/>
+<rect x="1270" y="95" width="310" height="580" rx="14" fill="#FFFFFF" stroke="#D94747" stroke-width="2"/>
+<text x="1425" y="88" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#D94747" font-weight="700" text-anchor="middle">UNCERTAINTY-AWARE REFINEMENT</text>
+<rect x="1290" y="132" width="270" height="66" rx="10" fill="#F5F7FA" stroke="#172033" stroke-width="1.5"/>
+<text x="1425" y="158" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#172033" font-weight="700" text-anchor="middle">Coarse Segmentation Head</text>
+<text x="1425" y="184" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#526078" font-weight="400" text-anchor="middle">Pc = σ(Conv1×1(Fdec))</text>
+<line x1="1425" y1="199" x2="1425" y2="220" stroke="#D94747" stroke-width="2" marker-end="url(#arrow-D94747)"/>
+<rect x="1290" y="224" width="270" height="72" rx="10" fill="#FFF0F0" stroke="#D94747" stroke-width="2"/>
+<text x="1425" y="251" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#D94747" font-weight="700" text-anchor="middle">Uncertainty Map</text>
+<text x="1425" y="280" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#172033" font-weight="700" text-anchor="middle">U = 1 − |2Pc − 1|</text>
+<line x1="1425" y1="297" x2="1425" y2="321" stroke="#D94747" stroke-width="2" marker-end="url(#arrow-D94747)"/>
+<rect x="1290" y="325" width="270" height="105" rx="10" fill="#FFF0F0" stroke="#D94747" stroke-width="2"/>
+<text x="1425" y="356" font-family="Arial, Helvetica, sans-serif" font-size="19" fill="#D94747" font-weight="700" text-anchor="middle">
+<tspan x="1425" dy="0">Uncertainty-Guided</tspan>
+<tspan x="1425" dy="23">Boundary Refinement</tspan>
+</text>
+<text x="1425" y="412" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#526078" font-weight="400" text-anchor="middle">decoder feature + uncertainty gating</text>
+<line x1="1199" y1="244" x2="1278" y2="377" stroke="#168B91" stroke-width="3" marker-end="url(#arrow-168B91)"/>
+<line x1="1333" y1="431" x2="1333" y2="460" stroke="#2463C7" stroke-width="2" marker-end="url(#arrow-2463C7)"/>
+<rect x="1290" y="465" width="86" height="145" rx="10" fill="#EAF2FF" stroke="#2463C7" stroke-width="1.5"/>
+<text x="1333" y="490" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#2463C7" font-weight="700" text-anchor="middle">
+<tspan x="1333" dy="0">Tumor</tspan>
+<tspan x="1333" dy="18">Segmentation</tspan>
+</text>
+<ellipse cx="1333" cy="555" rx="20" ry="28" fill="#2463C7" stroke="#2463C7" stroke-width="1"/>
+<line x1="1425" y1="431" x2="1425" y2="460" stroke="#D94747" stroke-width="2" marker-end="url(#arrow-D94747)"/>
+<rect x="1382" y="465" width="86" height="145" rx="10" fill="#FFF0F0" stroke="#D94747" stroke-width="1.5"/>
+<text x="1425" y="490" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#D94747" font-weight="700" text-anchor="middle">
+<tspan x="1425" dy="0">Boundary</tspan>
+<tspan x="1425" dy="18">Prediction</tspan>
+</text>
+<ellipse cx="1425" cy="555" rx="20" ry="28" fill="#FFFFFF" stroke="#D94747" stroke-width="3"/>
+<line x1="1517" y1="431" x2="1517" y2="460" stroke="#F07A24" stroke-width="2" marker-end="url(#arrow-F07A24)"/>
+<rect x="1474" y="465" width="86" height="145" rx="10" fill="#FFF1E6" stroke="#F07A24" stroke-width="1.5"/>
+<text x="1517" y="490" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#F07A24" font-weight="700" text-anchor="middle">
+<tspan x="1517" dy="0">Uncertainty</tspan>
+<tspan x="1517" dy="18">Supervision</tspan>
+</text>
+<ellipse cx="1517" cy="555" rx="20" ry="28" fill="#FFFFFF" stroke="#F07A24" stroke-width="3"/>
+<rect x="225" y="725" width="1030" height="125" rx="12" fill="#F5F7FA" stroke="#AAB6C8" stroke-width="1.5"/>
+<text x="245" y="758" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#172033" font-weight="700" text-anchor="start">Overall training objective</text>
+<text x="740" y="801" font-family="Arial, Helvetica, sans-serif" font-size="23" fill="#172033" font-weight="700" text-anchor="middle">L = LDice+BCE + λb Lboundary + λu Luncertainty + λa Lattention-smooth</text>
+<rect x="260" y="818" width="18" height="18" rx="4" fill="#2463C7" stroke="#2463C7" stroke-width="0"/>
+<text x="283" y="833" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#526078" font-weight="400" text-anchor="start">appearance feature</text>
+<rect x="445" y="818" width="18" height="18" rx="4" fill="#F07A24" stroke="#F07A24" stroke-width="0"/>
+<text x="468" y="833" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#526078" font-weight="400" text-anchor="start">kinetic guidance</text>
+<rect x="630" y="818" width="18" height="18" rx="4" fill="#7A4CC2" stroke="#7A4CC2" stroke-width="0"/>
+<text x="653" y="833" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#526078" font-weight="400" text-anchor="start">transformer</text>
+<rect x="815" y="818" width="18" height="18" rx="4" fill="#168B91" stroke="#168B91" stroke-width="0"/>
+<text x="838" y="833" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#526078" font-weight="400" text-anchor="start">decoder</text>
+<rect x="1000" y="818" width="18" height="18" rx="4" fill="#D94747" stroke="#D94747" stroke-width="0"/>
+<text x="1023" y="833" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#526078" font-weight="400" text-anchor="start">auxiliary output</text>
+<rect x="1270" y="725" width="310" height="125" rx="12" fill="#FFFFFF" stroke="#AAB6C8" stroke-width="1.5"/>
+<text x="1285" y="758" font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#172033" font-weight="700" text-anchor="start">Key contribution</text>
+<text x="1425" y="786" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#526078" font-weight="400" text-anchor="middle">
+<tspan x="1425" dy="0">Kinetic priors guide phase attention</tspan>
+<tspan x="1425" dy="20">and explicitly enter the encoder</tspan>
+<tspan x="1425" dy="20">through residual fusion.</tspan>
+</text>
+</svg>
