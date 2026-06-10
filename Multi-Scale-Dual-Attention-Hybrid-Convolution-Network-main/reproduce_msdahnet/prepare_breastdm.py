@@ -75,7 +75,7 @@ def main() -> None:
         print(f"{split}_paired_samples: {count}")
     print("Next step:")
     if args.layout == "fixed":
-        print("python reproduce_msdahnet/train_fixed_split.py --config reproduce_msdahnet/configs/msdahnet_breastdm_fixed_split.yaml")
+        print(f"python reproduce_msdahnet/train_fixed_split.py --config {args.config}")
     else:
         print(f"python reproduce_msdahnet/train_5fold.py --config {args.config}")
 

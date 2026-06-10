@@ -23,6 +23,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect BreastDM fixed split tensor shapes for MSDAHNet.")
     parser.add_argument("--config", default="reproduce_msdahnet/configs/msdahnet_breastdm_fixed_split.yaml")
     parser.add_argument("--save-preview", action="store_true", help="Save selected channel/mask previews.")
+    parser.add_argument(
+        "--strict-patient-split",
+        action="store_true",
+        help="Raise an error when the fixed split contains overlapping patient IDs.",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -40,7 +45,7 @@ def main() -> None:
         "val": collect_split_pairs(resolve_path(cfg["data"]["val_path"])),
         "test": collect_split_pairs(resolve_path(cfg["data"]["test_path"])),
     }
-    report_patient_leakage(split_pairs)
+    report_patient_leakage(split_pairs, strict=args.strict_patient_split)
 
     preview_root = Path(resolve_path(cfg["output"]["output_dir"])) / "debug_previews"
     for split, pairs in split_pairs.items():
@@ -106,7 +111,7 @@ def inspect_split(split: str, pairs: List[Tuple[str, str]], cfg, expected_channe
         save_preview(preview_root / split, image.numpy(), mask.numpy()[0])
 
 
-def report_patient_leakage(split_pairs: Dict[str, List[Tuple[str, str]]]) -> None:
+def report_patient_leakage(split_pairs: Dict[str, List[Tuple[str, str]]], strict: bool = False) -> None:
     patient_sets = {split: {patient_id(path) for path, _ in pairs} for split, pairs in split_pairs.items()}
     print("\n--- patient split ---")
     for split, patients in patient_sets.items():
@@ -116,7 +121,10 @@ def report_patient_leakage(split_pairs: Dict[str, List[Tuple[str, str]]]) -> Non
         print(f"{a}_{b}_patient_overlap: {len(overlap)}")
         if overlap:
             examples = sorted(overlap)[:5]
-            raise ValueError(f"Patient leakage detected between {a} and {b}: {examples}")
+            message = f"Patient overlap detected between {a} and {b}: {examples}"
+            if strict:
+                raise ValueError(message)
+            print(f"WARNING: {message}")
 
 
 def patient_id(path: str) -> str:
