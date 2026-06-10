@@ -1,5 +1,5 @@
 experiment:
-  name: "pdfunet_breastdm_dicebce"
+  name: "pdfunet_breastdm_focaltversky_17ch"
   seed: 42
   device: "cuda"
 
@@ -8,12 +8,12 @@ data:
   source_type: "seg"
   seg_root: "../seg"
   label_phase: "VIBRANT"
-  train_path: "./processed_breastdm/train"
-  val_path: "./processed_breastdm/val"
-  test_path: "./processed_breastdm/test"
+  train_path: "./processed_breastdm_17ch/train"
+  val_path: "./processed_breastdm_17ch/val"
+  test_path: "./processed_breastdm_17ch/test"
   image_size: 128
-  input_mode: "single_channel_pre"
-  in_channels: 1
+  input_mode: "multi_phase"
+  in_channels: 17
   normalize: "minmax"
   mask_threshold: 0
   use_center_slice_only: true
@@ -31,7 +31,7 @@ cross_validation:
 
 model:
   name: "PDFUNet"
-  in_channels: 1
+  in_channels: 17
   num_classes: 1
   feature_channels: [32, 64, 128, 256, 512]
   bilinear: true
@@ -51,9 +51,10 @@ train:
   save_best_by: "val_dice"
 
 loss:
-  name: "DiceBCE"
-  dice_weight: 1.0
-  bce_weight: 1.0
+  name: "FocalTversky"
+  alpha: 0.7
+  beta: 0.3
+  gamma: 0.75
 
 eval:
   threshold: 0.5
@@ -62,6 +63,6 @@ eval:
   hd95_empty_value: 128.0
 
 output:
-  output_dir: "./results_pdfunet_breastdm/dicebce"
+  output_dir: "./results_pdfunet_breastdm/focaltversky_17ch"
   save_predictions: true
   save_logs: true

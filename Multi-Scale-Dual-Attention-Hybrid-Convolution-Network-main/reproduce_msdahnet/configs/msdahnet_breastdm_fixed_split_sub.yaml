@@ -5,9 +5,13 @@ experiment:
 
 data:
   dataset: "BreastDM"
+  source_type: "seg"
+  seg_root: "../seg"
   source_processed_17ch_dir: "../processed_17ch_dce"
   processed_fixed_root: "./reproduce_msdahnet/BreastDM_fixed"
   processed_output_format: "npy"
+  processed_channels: 17
+  label_phase: "VIBRANT"
   train_path: "./reproduce_msdahnet/BreastDM_fixed/train"
   val_path: "./reproduce_msdahnet/BreastDM_fixed/val"
   test_path: "./reproduce_msdahnet/BreastDM_fixed/test"

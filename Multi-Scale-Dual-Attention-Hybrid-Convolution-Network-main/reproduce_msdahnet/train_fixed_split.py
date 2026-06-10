@@ -63,8 +63,8 @@ def run_fixed_split(train_pairs, val_pairs, test_pairs, cfg, output_dir: Path) -
     device = torch.device(cfg["experiment"]["device"] if torch.cuda.is_available() else "cpu")
     gray_to_rgb = bool(cfg["data"].get("gray_to_rgb", False))
     in_channels = int(cfg["model"]["in_channels"])
-    assert (gray_to_rgb and in_channels == 3) or ((not gray_to_rgb) and in_channels == 1), (
-        "Use in_channels=1 with gray_to_rgb=false, or in_channels=3 with gray_to_rgb=true."
+    assert (gray_to_rgb and in_channels == 3) or ((not gray_to_rgb) and in_channels in {1, 9, 17}), (
+        "Use in_channels=1/9/17 with gray_to_rgb=false, or in_channels=3 with gray_to_rgb=true."
     )
     print(
         f"[Fixed] start | train={len(train_pairs)} val={len(val_pairs)} test={len(test_pairs)} "

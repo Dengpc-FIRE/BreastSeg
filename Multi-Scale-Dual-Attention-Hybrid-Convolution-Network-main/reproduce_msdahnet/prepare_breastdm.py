@@ -15,6 +15,7 @@ from reproduce_msdahnet.datasets.breastdm_2d_dataset import (  # noqa: E402
     collect_split_pairs,
     convert_processed_17ch_to_breastdm_dirs,
     convert_processed_17ch_to_fixed_split_dirs,
+    convert_seg_to_fixed_split_dirs,
 )
 
 
@@ -25,20 +26,33 @@ def main() -> None:
     parser.add_argument("--output", default=None, help="Output BreastDM directory containing pre_contrast_images and masks.")
     parser.add_argument("--layout", choices=["flat", "fixed"], default="fixed", help="flat for 5-fold CV, fixed for train/val/test.")
     parser.add_argument("--format", choices=["npy", "png"], default=None, help="fixed-layout output format. npy preserves MRI float precision.")
+    parser.add_argument("--source-type", choices=["seg", "processed17"], default=None)
+    parser.add_argument("--channels", type=int, choices=[9, 17], default=None, help="Channels to write when source-type=seg.")
+    parser.add_argument("--label-phase", default=None, help="Label sequence folder in seg labels, default VIBRANT.")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    source_root = resolve_path(args.source or cfg["data"]["source_processed_17ch_dir"])
+    source_type = args.source_type or cfg["data"].get("source_type", "seg")
+    source_key = "seg_root" if source_type == "seg" else "source_processed_17ch_dir"
+    source_root = resolve_path(args.source or cfg["data"][source_key])
     default_output = default_output_root(cfg, args.layout)
     output_root = Path(resolve_path(args.output)) if args.output else default_output
 
     if args.layout == "fixed":
         output_format = args.format or cfg.get("data", {}).get("processed_output_format", "npy")
-        stats = convert_processed_17ch_to_fixed_split_dirs(
-            source_root=source_root,
-            output_root=str(output_root),
-            output_format=output_format,
-        )
+        if source_type == "seg":
+            stats = convert_seg_to_fixed_split_dirs(
+                source_root=source_root,
+                output_root=str(output_root),
+                output_channels=int(args.channels or cfg["data"].get("processed_channels", 17)),
+                label_phase=args.label_phase or cfg["data"].get("label_phase", "VIBRANT"),
+            )
+        else:
+            stats = convert_processed_17ch_to_fixed_split_dirs(
+                source_root=source_root,
+                output_root=str(output_root),
+                output_format=output_format,
+            )
         paired = {}
         for split in ("train", "val", "test"):
             paired[split] = len(collect_split_pairs(str(output_root / split)))
@@ -47,12 +61,16 @@ def main() -> None:
         paired = {"all": len(collect_pairs(str(output_root / "pre_contrast_images"), str(output_root / "masks")))}
 
     print(f"source_root: {source_root}")
+    print(f"source_type: {source_type}")
     print(f"output_root: {output_root}")
     print(f"converted_images: {stats['images']}")
     print(f"converted_masks: {stats['masks']}")
     print(f"skipped_non_3d_arrays: {stats['skipped']}")
     if args.layout == "fixed":
         print(f"output_format: {args.format or cfg.get('data', {}).get('processed_output_format', 'npy')}")
+        if source_type == "seg":
+            print(f"processed_channels: {int(args.channels or cfg['data'].get('processed_channels', 17))}")
+            print(f"label_phase: {args.label_phase or cfg['data'].get('label_phase', 'VIBRANT')}")
     for split, count in paired.items():
         print(f"{split}_paired_samples: {count}")
     print("Next step:")

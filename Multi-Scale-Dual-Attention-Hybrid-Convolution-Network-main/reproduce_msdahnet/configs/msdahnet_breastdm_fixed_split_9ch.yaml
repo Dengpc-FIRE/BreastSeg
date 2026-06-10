@@ -1,5 +1,5 @@
 experiment:
-  name: "msdahnet_breastdm_fixed_split_reproduction"
+  name: "msdahnet_breastdm_fixed_split_9ch"
   seed: 42
   device: "cuda"
 
@@ -8,19 +8,19 @@ data:
   source_type: "seg"
   seg_root: "../seg"
   source_processed_17ch_dir: "../processed_17ch_dce"
-  processed_fixed_root: "./reproduce_msdahnet/BreastDM_fixed"
+  processed_fixed_root: "./reproduce_msdahnet/BreastDM_fixed_9ch"
   processed_output_format: "npy"
-  processed_channels: 17
+  processed_channels: 9
   label_phase: "VIBRANT"
-  train_path: "./reproduce_msdahnet/BreastDM_fixed/train"
-  val_path: "./reproduce_msdahnet/BreastDM_fixed/val"
-  test_path: "./reproduce_msdahnet/BreastDM_fixed/test"
+  train_path: "./reproduce_msdahnet/BreastDM_fixed_9ch/train"
+  val_path: "./reproduce_msdahnet/BreastDM_fixed_9ch/val"
+  test_path: "./reproduce_msdahnet/BreastDM_fixed_9ch/test"
   image_size: 256
   original_size: 369
   mode: "L"
-  input_mode: "single_channel_pre"
+  input_mode: "multi_channel_9"
   channel_index:
-  in_channels: 1
+  in_channels: 9
   gray_to_rgb: false
   normalize: "minmax_0_1"
   mask_threshold: 0
@@ -28,7 +28,7 @@ data:
 
 model:
   name: "MSDAHNet"
-  in_channels: 1
+  in_channels: 9
   num_classes: 1
 
 train:
@@ -63,6 +63,6 @@ eval:
   hd_empty_value: 256.0
 
 output:
-  output_dir: "./reproduce_msdahnet/results_msdahnet_breastdm_fixed_split"
+  output_dir: "./reproduce_msdahnet/results_msdahnet_breastdm_fixed_split_9ch"
   save_predictions: true
   save_logs: true

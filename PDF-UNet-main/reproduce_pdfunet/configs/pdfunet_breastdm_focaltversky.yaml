@@ -5,6 +5,9 @@ experiment:
 
 data:
   dataset: "BreastDM"
+  source_type: "seg"
+  seg_root: "../seg"
+  label_phase: "VIBRANT"
   train_path: "./processed_breastdm/train"
   val_path: "./processed_breastdm/val"
   test_path: "./processed_breastdm/test"
@@ -63,4 +66,3 @@ output:
   output_dir: "./results_pdfunet_breastdm/focaltversky"
   save_predictions: true
   save_logs: true
-
