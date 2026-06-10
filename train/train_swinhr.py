@@ -532,12 +532,44 @@ def main():
         print("Initializing legacy SwinHR model...")
         model = get_model(args.model_name).to(device)
     
+    # 固定 weight decay，避免在首轮搜索中同时引入过多优化器变量。
     optimizer = optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     loss_fn = smp.losses.DiceLoss(mode='binary', from_logits=True)
     configured_loss_fn = build_loss_from_config(config) if config else None
     bce_loss_fn = nn.BCEWithLogitsLoss()
     scaler = GradScaler('cuda', enabled=device.type == 'cuda')
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    scheduler_cfg = config.get("scheduler", {}) if config else {}
+    scheduler_enabled = bool(scheduler_cfg.get("enabled", True))
+    scheduler_name = str(scheduler_cfg.get("name", "cosine")).lower()
+    if not scheduler_enabled:
+        scheduler = None
+        scheduler_uses_val_metric = False
+        scheduler_name = "disabled"
+    elif scheduler_name in {"plateau", "reduce_on_plateau", "reducelronplateau"}:
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            factor=float(scheduler_cfg.get("factor", 0.5)),
+            patience=int(scheduler_cfg.get("patience", 10)),
+            threshold=float(scheduler_cfg.get("threshold", 1e-4)),
+            threshold_mode=str(scheduler_cfg.get("threshold_mode", "abs")),
+            cooldown=int(scheduler_cfg.get("cooldown", 0)),
+            min_lr=float(scheduler_cfg.get("min_lr", 1e-6)),
+        )
+        scheduler_uses_val_metric = True
+    elif scheduler_name in {"cosine", "cosine_annealing"}:
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=int(scheduler_cfg.get("t_max", args.epochs)),
+            eta_min=float(scheduler_cfg.get("min_lr", 0.0)),
+        )
+        scheduler_uses_val_metric = False
+    else:
+        raise ValueError(f"Unknown scheduler: {scheduler_name}")
+    print(
+        f"Optimizer: AdamW(lr={args.lr:g}, weight_decay=0.0001), "
+        f"scheduler={scheduler_name}"
+    )
     
     best_dice = 0.0
     best_test_records = []
@@ -600,14 +632,23 @@ def main():
             train_loss += loss.item()
             pbar.set_postfix({'loss': loss.item()})
         
-        scheduler.step()
-        
         # --- 验证 ---
         val_dice, val_iou, val_sens, val_prec = evaluate(model, val_loader, device, desc="Validating")
+        lr_before_step = optimizer.param_groups[0]["lr"]
+        if scheduler is None:
+            pass
+        elif scheduler_uses_val_metric:
+            scheduler.step(val_dice)
+        else:
+            scheduler.step()
+        current_lr = optimizer.param_groups[0]["lr"]
+        if current_lr < lr_before_step:
+            print(f"[LR] Reduced: {lr_before_step:.6g} -> {current_lr:.6g}")
         print(
             f"Epoch {epoch} | Train Loss: {train_loss/len(train_loader):.4f} | "
             f"Val Dice: {val_dice:.4f} | Val IoU: {val_iou:.4f} | "
-            f"Val Sens: {val_sens:.4f} | Val Prec: {val_prec:.4f}"
+            f"Val Sens: {val_sens:.4f} | Val Prec: {val_prec:.4f} | "
+            f"LR: {current_lr:.6g}"
         )
         
         if val_dice > best_dice:

@@ -5,7 +5,7 @@ train:
   output_path: "./results_kpta_25d_net"
   epochs: 250
   batch_size: 4
-  lr: 0.0001
+  lr: 0.00005
   num_workers: 4
 
 dataset:

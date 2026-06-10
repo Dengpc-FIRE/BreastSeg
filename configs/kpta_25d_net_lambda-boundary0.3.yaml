@@ -65,7 +65,7 @@ model:
 loss:
   name: "kpta_25d_loss"
   bce_weight: 0.5
-  lambda_boundary: 0.2
+  lambda_boundary: 0.3
   lambda_uncertainty: 0.1
   lambda_attention_smooth: 0.01
   boundary_thickness: 3
