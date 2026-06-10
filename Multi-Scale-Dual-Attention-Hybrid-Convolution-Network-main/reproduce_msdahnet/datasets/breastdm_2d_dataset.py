@@ -209,7 +209,11 @@ class BreastDM2DDataset(Dataset):
             image = image[None, :, :]
         if self.gray_to_rgb:
             image = np.repeat(image, 3, axis=0)
+        if image.ndim != 3:
+            raise ValueError(f"Expected image as [C,H,W] after preprocessing, got shape {image.shape} from {image_path}")
         mask = mask[None, :, :]
+        if mask.ndim != 3 or mask.shape[0] != 1:
+            raise ValueError(f"Expected mask as [1,H,W] after preprocessing, got shape {mask.shape} from {mask_path}")
         return {
             "image": torch.from_numpy(image).float(),
             "mask": torch.from_numpy(mask).float(),
@@ -240,7 +244,7 @@ def _read_image(path: str, size: int, input_mode: str = "single_channel_pre", ch
 
 
 def _channel_index(input_mode: str, channel_index: int = None) -> int:
-    if channel_index is not None:
+    if channel_index not in (None, "", "none", "None", "null", "NULL"):
         return int(channel_index)
     if input_mode == "single_channel_pre":
         return 0
