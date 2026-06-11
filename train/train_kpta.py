@@ -41,7 +41,6 @@ EARLY_ARGS = (
 
 import cv2
 import numpy as np
-import segmentation_models_pytorch as smp
 import torch
 import torch.optim as optim
 from torch.amp import GradScaler, autocast
@@ -163,35 +162,26 @@ def evaluate(model, loader, device, desc: str):
             masks = masks.to(device, non_blocking=True)
             with autocast("cuda", enabled=device.type == "cuda"):
                 logits, _ = unpack_model_output(model(images))
-            predictions = (torch.sigmoid(logits) > 0.5).long()
-            tp, fp, fn, tn = smp.metrics.get_stats(
-                predictions,
-                masks.long(),
-                mode="binary",
+            predictions = (torch.sigmoid(logits) > 0.5).float()
+            targets = masks.float()
+            dims = (1, 2, 3)
+            tp = (predictions * targets).sum(dim=dims)
+            fp = (predictions * (1.0 - targets)).sum(dim=dims)
+            fn = ((1.0 - predictions) * targets).sum(dim=dims)
+            eps = 1e-7
+            totals["dice"].extend(
+                ((2.0 * tp + eps) / (2.0 * tp + fp + fn + eps))
+                .cpu()
+                .tolist()
             )
-            totals["dice"].append(
-                smp.metrics.f1_score(
-                    tp,
-                    fp,
-                    fn,
-                    tn,
-                    reduction="micro-imagewise",
-                ).item()
+            totals["iou"].extend(
+                ((tp + eps) / (tp + fp + fn + eps)).cpu().tolist()
             )
-            totals["iou"].append(
-                smp.metrics.iou_score(
-                    tp,
-                    fp,
-                    fn,
-                    tn,
-                    reduction="micro-imagewise",
-                ).item()
+            totals["sensitivity"].extend(
+                ((tp + eps) / (tp + fn + eps)).cpu().tolist()
             )
-            totals["sensitivity"].append(
-                (tp.float() / (tp.float() + fn.float() + 1e-7)).mean().item()
-            )
-            totals["precision"].append(
-                (tp.float() / (tp.float() + fp.float() + 1e-7)).mean().item()
+            totals["precision"].extend(
+                ((tp + eps) / (tp + fp + eps)).cpu().tolist()
             )
     if not totals["dice"]:
         raise ValueError(f"{desc} dataset is empty.")

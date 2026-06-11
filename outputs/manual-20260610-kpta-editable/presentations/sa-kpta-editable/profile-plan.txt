@@ -1,6 +1,0 @@
-task mode: create
-primary deck-profile: engineering-platform
-required proof object: one-slide editable architecture map
-source: repository implementation in model/kpta_25d_net.py and configs/kpta_25d_net.yaml
-asset policy: no raster assets; all visual elements are editable shapes and text
-QA gates: technically correct flow, attached connectors, legible at slide scale, editable PowerPoint objects

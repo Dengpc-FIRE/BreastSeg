@@ -23,10 +23,17 @@ processed_25d_dce/
 
 # 训练结果目录
 results_*/
+outputs/
+figures/
 各种model/
 各种out/
 各种result/
 各种train/
+
+# 训练日志：仅保留计划与 KPTA 实验记录
+log/*
+!log/Plan*
+!log/kpta*
 
 # 其他临时文件
 *.tmp

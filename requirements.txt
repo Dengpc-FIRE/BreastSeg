@@ -1,9 +1,16 @@
-torch
-torchvision
-segmentation-models-pytorch
-monai
-PyYAML
-einops
-numpy
-tqdm
-opencv-python
+# Reference server environment:
+#   Host: carla
+#   Conda env: /home/czy/anaconda3/envs/stamp
+#   Python: 3.8.20
+#   GPU: NVIDIA GeForce RTX 3090 (24 GiB)
+#   NVIDIA driver: 595.71.05
+#   PyTorch CUDA: 12.1
+#   cuDNN: 9.1.0
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+torch==2.4.1
+PyYAML==6.0.2
+numpy==1.24.4
+tqdm==4.67.1
+opencv-python-headless==4.5.1.48
