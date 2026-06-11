@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from train.train_config import build_model_from_config, load_config, resolve_config_path
 
 
-class KPTA25DValidationDataset(Dataset):
+class KPTA25DSegmentationDataset(Dataset):
     """Load processed SA-KPTA-Net samples with shape [K,T,H,W]."""
 
     def __init__(self, split_path: str):
@@ -24,9 +24,9 @@ class KPTA25DValidationDataset(Dataset):
         self.data_dir = self.split_path / "data"
         self.gt_dir = self.split_path / "GT"
         if not self.data_dir.is_dir():
-            raise FileNotFoundError(f"Validation data directory not found: {self.data_dir}")
+            raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
         if not self.gt_dir.is_dir():
-            raise FileNotFoundError(f"Validation GT directory not found: {self.gt_dir}")
+            raise FileNotFoundError(f"GT directory not found: {self.gt_dir}")
         self.files = sorted(self.data_dir.glob("*.npy"))
         if not self.files:
             raise FileNotFoundError(f"No .npy samples found in: {self.data_dir}")
@@ -213,7 +213,7 @@ def main():
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    dataset = KPTA25DValidationDataset(str(split_path))
+    dataset = KPTA25DSegmentationDataset(str(split_path))
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,

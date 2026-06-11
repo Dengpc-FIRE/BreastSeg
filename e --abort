@@ -1,0 +1,299 @@
+[33mcommit 4325de5bb4a3cd52ffbe538cc33e199bfff4ab80[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m)[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Thu Jun 11 00:14:10 2026 +0800
+
+    keshihua
+
+[33mcommit cf1930d974744eafd5ec098bff665ab70734d751[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Thu Jun 11 00:09:40 2026 +0800
+
+    可视化
+
+[33mcommit b7ab37561c481fb032b932e6a4b2a54cfbcb70dd[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed Jun 10 16:13:29 2026 +0800
+
+    超参数配置文件
+
+[33mcommit 08894254b246997874b2421d4bc2792af115ec80[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed Jun 10 11:58:16 2026 +0800
+
+    PDFUnet-datasetBugifx
+
+[33mcommit aa5b16c0ea818181168145ba58e2bcad6f741bd2[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed Jun 10 11:15:04 2026 +0800
+
+    bugfix
+
+[33mcommit 8decc9d2fdb033a21b9eac68a674720272def9cc[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed Jun 10 11:01:51 2026 +0800
+
+    datasetBugFix
+
+[33mcommit 9c12e3db7c958b618ab29c8ad27014fe492ccf10[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed Jun 10 09:39:03 2026 +0800
+
+    dataset-bugfix
+
+[33mcommit 726b39efdb10088a437c1b3f5f3a904cffe4807f[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed Jun 10 00:15:19 2026 +0800
+
+    MSDAHNet-Bugfix
+
+[33mcommit 5510b9f9df0a17401e3024e092c2e8cc39b0f71d[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 23:02:42 2026 +0800
+
+    MSDAHNet-Dataset不采用交叉验证
+
+[33mcommit 66fed026a0dc655c63a09baeaa7b8ae249990ba4[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 19:29:14 2026 +0800
+
+    bugfix-Dice|
+
+[33mcommit 07556748ffad255946f1974f1292514703a80724[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 19:15:02 2026 +0800
+
+    bugfix-Dice|
+
+[33mcommit 404b9414b5200e5bbc0204c34f3b8fa24478fa95[m
+Merge: f4e0162bb bec5e772b
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 18:52:26 2026 +0800
+
+    Merge branch 'master' of github.com:Dengpc-FIRE/BreastSeg
+
+[33mcommit f4e0162bbd8546aaf37fe85c8b08f0149ce968f9[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 18:51:57 2026 +0800
+
+    PDFUnet
+
+[33mcommit bec5e772bcde2e1215afae15fe04280fc88c4ced[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 18:51:35 2026 +0800
+
+    log
+
+[33mcommit d9ddff7dac8a35f61ff59a1c916744225bcdc9fa[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 17:51:01 2026 +0800
+
+    MSDAHNet控制台输出epoch等信息
+
+[33mcommit 4199a8fd35e237dcc100025766c23125a4f57872[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 17:33:22 2026 +0800
+
+    MSDAHNet-评价指标bugfix
+
+[33mcommit db5a955c5adfd37ddcf303b20fc124f4244ce5b6[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 17:31:15 2026 +0800
+
+    datasetPre
+
+[33mcommit 3aa39be0fdd139acf7c0a41863e41b5ce0ab1b7c[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 17:26:45 2026 +0800
+
+    preDataset-MSDAHNet
+
+[33mcommit ac7cfbb25dedf81b5aaa3a5c7cab7aec578fc484[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 17:21:09 2026 +0800
+
+    bugfix-MSDAHNet
+
+[33mcommit 9bc25510e4582cdcf1ef2bc151f86b28bdd234aa[m
+Merge: 0b1d58ab5 cfd253ff5
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 17:17:18 2026 +0800
+
+    Merge branch 'master' of github.com:Dengpc-FIRE/BreastSeg
+
+[33mcommit 0b1d58ab5392c5d259aec5bd9558dc9f6d765500[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 17:14:13 2026 +0800
+
+    planDe-disable动力学
+
+[33mcommit cfd253ff5498cabe7d3edd64c2f94ad7fe7f5741[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 17:11:27 2026 +0800
+
+    MSDAHNet
+
+[33mcommit 50722bf04038992601f5df8b1064e3d877273821[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 15:34:30 2026 +0800
+
+    PlanDE
+
+[33mcommit 5f6d00661dca3f210c0d23011827006108313e06[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 15:21:47 2026 +0800
+
+    PlanD
+
+[33mcommit 3e67a0facd4eccca5d0d136b067b085b10ebceba[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 15:12:04 2026 +0800
+
+    PlanD
+
+[33mcommit 78b67d8f89959a36cc080e7f4150f78993396c04[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 14:57:43 2026 +0800
+
+    PlanD
+
+[33mcommit 5fb07f6d290816549586e3bb9707aa8354d06579[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue Jun 9 09:23:46 2026 +0800
+
+    PlanDModule"
+
+[33mcommit 69e545f8b861e7d86779b134dfa0d3c68053558d[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Thu May 28 10:53:34 2026 +0800
+
+    document kpta 25d tensor shapes
+
+[33mcommit e0fba9b66b8201c31304afd633955dbf4dbf2799[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Thu May 28 10:47:41 2026 +0800
+
+    log
+
+[33mcommit 6da4072d6df582e67277cbc1812b159e7271d8ab[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Thu May 28 00:09:34 2026 +0800
+
+    log
+
+[33mcommit 156d725f5703c6426d7d3ba18a0876e11982a894[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 23:30:02 2026 +0800
+
+    log
+
+[33mcommit b7652e61db786bf452808d521c89507b76581802[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 21:36:44 2026 +0800
+
+    log
+
+[33mcommit 8a51f133cece94cf8c1e5366a5243384c031d20e[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 20:58:52 2026 +0800
+
+    log
+
+[33mcommit 2d24a184eab076d3d859e2b64c9612de4c2c5d77[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 20:43:45 2026 +0800
+
+    log
+
+[33mcommit e821fb34ff17543ac0d632c45702035ec118160b[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 19:30:54 2026 +0800
+
+    document kpta 25d training flow
+
+[33mcommit 3e5b5b0272abd1205058eed23e175c92d84b3132[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 18:29:43 2026 +0800
+
+    auto detect 25d dataset shape
+
+[33mcommit 9eee2b009c081aa7438db81117591882540b652e[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 18:19:39 2026 +0800
+
+    fix kpta 25d zero loss instability
+
+[33mcommit 03c0cb7d555bae38944b442ed9f42e800a8a5ef9[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 17:34:47 2026 +0800
+
+    replace kpta 25d bottleneck with swin attention
+
+[33mcommit 7f27267dccc65fb81d52ba07274b930725599adf[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 27 17:29:27 2026 +0800
+
+    implement slice aware kpta 25d net
+
+[33mcommit 0374ca94d004e59ef2987c68b009dc896242ad37[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 20 00:01:28 2026 +0800
+
+    /
+
+[33mcommit b38747717a4844a351066d2517ff370a502110ac[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue May 19 23:59:59 2026 +0800
+
+    .
+
+[33mcommit 3c9d28a409bf5fb01b2df5daa725899e2cddd2d0[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue May 19 22:48:09 2026 +0800
+
+    log/PlanB-KPTANet-lr3e4_ep-100.txt
+
+[33mcommit ad93dd5f8413885b0cb90b525b09f5144fa2d02c[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue May 19 22:27:50 2026 +0800
+
+    “”
+
+[33mcommit a71b9a813efb934334b7075039825a07bd90f10a[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue May 19 22:11:11 2026 +0800
+
+    feat: 融合远端KPRNet并更新train_swinhr与训练日志
+
+[33mcommit c86d618187a5b0624b3e8a5f3275230bddedbe29[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue May 19 18:19:39 2026 +0800
+
+    implement kpr net
+
+[33mcommit 4f3d1774b8448c1315a921a75d8fc87e5cf7ec72[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue May 19 18:09:09 2026 +0800
+
+    implement kpta net
+
+[33mcommit c6efef52cc3ff70219b7490a40385b52fb1d45df[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Tue May 19 18:03:46 2026 +0800
+
+    implement sg ktfnet
+
+[33mcommit 67abae8bec661eb75837b9c1e100384bcdd164c5[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 6 20:05:18 2026 +0800
+
+    kinetic maps + reliability fusion + hard-negative suppression + SDF geometry
+
+[33mcommit 542831104bda99d11f9f6d94d605160a7648b465[m
+Author: Dengpc <dengpc123@gmail.com>
+Date:   Wed May 6 13:46:28 2026 +0800
+
+    python train/train_swinhr.py --model_name swinhr_dcs_curve --output_path results_swinhr_dcs_curve > log/swinhr_dcs_curve.txt 2>&1
+    
+    python train/train_swinhr.py --model_name swinhr_dcs_reliability --output_path results_swinhr_dcs_reliability > log/swinhr_dcs_reliability.txt 2>&1
+    
+    python train/train_swinhr.py --model_name swinhr_dcs_full --output_path r
