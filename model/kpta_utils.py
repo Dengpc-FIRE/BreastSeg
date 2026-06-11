@@ -1,3 +1,5 @@
+"""Shared utilities for KPTA models."""
+
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 

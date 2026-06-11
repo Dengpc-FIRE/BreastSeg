@@ -36,8 +36,8 @@ import torch.nn as nn
 import torch.distributions as td
 import torch.nn.functional as F
 
-from .dce_kinetic_utils import PhaseIndices
-from .sg_ktfnet import ConvBlock, UpBlock
+from .kpta_blocks import ConvBlock, UpBlock
+from .kpta_utils import PhaseIndices
 
 
 class KineticMapBuilder25D(nn.Module):
@@ -1388,9 +1388,3 @@ class KPTA25DNet(nn.Module):
         if not valid:
             return None
         return x[:, :, valid]
-
-
-class SwinHR(KPTA25DNet):
-    """兼容仓库旧动态加载接口的包装类。"""
-
-    pass

@@ -1,12 +1,11 @@
 from copy import deepcopy
-from importlib import import_module
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 
 def load_config(path: Optional[str]) -> Dict[str, Any]:
     if not path:
-        return {}
+        raise ValueError("A KPTA YAML config path is required.")
     import yaml
 
     with open(path, "r", encoding="utf-8") as f:
@@ -14,73 +13,46 @@ def load_config(path: Optional[str]) -> Dict[str, Any]:
     return data
 
 
-def apply_config_to_args(args, config: Dict[str, Any]):
-    train_cfg = config.get("train", {})
-    for key, value in train_cfg.items():
-        if hasattr(args, key):
-            setattr(args, key, value)
-    return args
-
-
 def build_model_from_config(config: Dict[str, Any]):
     model_cfg = deepcopy(config.get("model", {}))
     ablation = deepcopy(config.get("ablation", {}))
-    name = model_cfg.pop("name", "sg_ktfnet")
+    name = model_cfg.pop("name", None)
     model_cfg["ablation"] = ablation
 
-    if name in {"sg_ktfnet", "sgktfnet", "SGKTFNet"}:
-        from model.sg_ktfnet import SGKTFNet
-
-        return SGKTFNet(**model_cfg)
-    if name in {"kpta_net", "kptanet", "KPTANet"}:
+    if name == "kpta_net":
         from model.kpta_net import KPTANet
 
         return KPTANet(**model_cfg)
-    if name in {"kpta_25d_net", "kpta25dnet", "KPTA25DNet", "sa_kpta_net"}:
+    if name == "kpta_25d_net":
         from model.kpta_25d_net import KPTA25DNet
 
         return KPTA25DNet(**model_cfg)
-    if name in {"kpr_net", "kprnet", "KPRNet"}:
-        from model.kpr_net import KPRNet
-
-        model_cfg["phase_dropout"] = deepcopy(config.get("phase_dropout", {}))
-        loss_cfg = config.get("loss", {})
-        if "contrastive_temperature" in loss_cfg:
-            model_cfg.setdefault("contrastive_temperature", loss_cfg["contrastive_temperature"])
-        if "min_tumor_pixels" in loss_cfg:
-            model_cfg.setdefault("min_tumor_pixels", loss_cfg["min_tumor_pixels"])
-        return KPRNet(**model_cfg)
-
-    module = import_module(f"model.{name}")
-    cls = getattr(module, "SwinHR")
-    return cls(**model_cfg)
+    raise ValueError(
+        "Unsupported model.name. Expected 'kpta_net' or 'kpta_25d_net', "
+        f"got {name!r}."
+    )
 
 
 def build_loss_from_config(config: Dict[str, Any]):
     loss_cfg = deepcopy(config.get("loss", {}))
     if not loss_cfg:
-        return None
+        raise ValueError("The KPTA config must define a loss section.")
     ablation = deepcopy(config.get("ablation", {}))
-    name = loss_cfg.pop("name", "sg_ktfnet_loss")
+    name = loss_cfg.pop("name", None)
     loss_cfg["ablation"] = ablation
 
-    if name in {"sg_ktfnet_loss", "sgktfnet_loss", "SGKTFNetLoss"}:
-        from train.losses import SGKTFNetLoss
-
-        return SGKTFNetLoss(**loss_cfg)
-    if name in {"kpta_net_loss", "kptanet_loss", "KPTANetLoss"}:
+    if name == "kpta_net_loss":
         from train.losses import KPTANetLoss
 
         return KPTANetLoss(**loss_cfg)
-    if name in {"kpta_25d_loss", "kpta25d_loss", "KPTA25DNetLoss"}:
+    if name == "kpta_25d_loss":
         from train.losses import KPTA25DNetLoss
 
         return KPTA25DNetLoss(**loss_cfg)
-    if name in {"kpr_net_loss", "kprnet_loss", "KPRNetLoss"}:
-        from train.losses import KPRNetLoss
-
-        return KPRNetLoss(**loss_cfg)
-    raise ValueError(f"Unknown configured loss: {name}")
+    raise ValueError(
+        "Unsupported loss.name. Expected 'kpta_net_loss' or 'kpta_25d_loss', "
+        f"got {name!r}."
+    )
 
 
 def resolve_config_path(path: Optional[str]) -> Optional[str]:

@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .dce_kinetic_utils import EnhancementMapBuilder, PhaseIndices
-from .sg_ktfnet import ConvBlock, KineticEncoder, UpBlock
+from .kpta_blocks import ConvBlock, KineticEncoder, UpBlock
+from .kpta_utils import EnhancementMapBuilder, PhaseIndices
 
 
 class PseudoKineticMapBuilder(EnhancementMapBuilder):
@@ -255,15 +255,3 @@ class KPTANet(nn.Module):
             "attention_maps": attention_maps,
             "debug": {"num_phases": phase_stack.shape[1]},
         }
-
-
-class SwinHR(KPTANet):
-    """Compatibility wrapper for train_swinhr.py --model_name kpta_net."""
-
-    def __init__(self, in_channels: int = 1, attn_channels: int = 8, *args, **kwargs) -> None:
-        total_channels = int(kwargs.pop("total_channels", in_channels + attn_channels))
-        if total_channels >= 17:
-            phase_indices = {"pre": 0, "post": list(range(1, 9)), "subtraction": list(range(9, 17))}
-        else:
-            phase_indices = {"pre": 0, "post": [], "subtraction": list(range(1, total_channels))}
-        super().__init__(in_channels=total_channels, phase_indices=phase_indices, *args, **kwargs)

@@ -1,7 +1,0 @@
-[2026-04-29 14:25:18] START 1/6 line 7: python train/train_swinhr.py --model_name swinhr_silhouette --output_path results_swinhr_silhouette > log/swinhr_silhouette.txt 2>&1
-[2026-04-29 14:25:18] START 2/6 line 10: python train/train_swinhr.py --model_name swinhr_sil_pib --output_path results_swinhr_sil_pib > log/swinhr_sil_pib.txt 2>&1
-[2026-04-29 14:25:18] START 3/6 line 13: python train/train_swinhr.py --model_name swinhr_sil_stem --output_path results_swinhr_sil_stem > log/swinhr_sil_stem.txt 2>&1
-[2026-04-29 14:25:18] START 4/6 line 16: python train/train_swinhr.py --model_name swinhr_sil_temporal --output_path results_swinhr_sil_temporal > log/swinhr_sil_temporal.txt 2>&1
-[2026-04-29 14:25:18] START 5/6 line 19: python train/train_swinhr.py --model_name swinhr_sil_decoder --output_path results_swinhr_sil_decoder > log/swinhr_sil_decoder.txt 2>&1
-[2026-04-29 14:25:18] START 6/6 line 22: python train/train_swinhr.py --model_name swinhr_sil_combo --output_path results_swinhr_sil_combo > log/swinhr_sil_combo.txt 2>&1
-Queue finished: total=6, failures=0
