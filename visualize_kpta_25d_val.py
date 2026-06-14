@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from train.train_config import build_model_from_config, load_config, resolve_config_path
+from inference.whole_breast_constraint import build_whole_breast_constraint
 
 
 class KPTA25DSegmentationDataset(Dataset):
@@ -227,11 +228,20 @@ def main():
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(extract_state_dict(checkpoint), strict=True)
     model.eval()
+    whole_breast_constraint = build_whole_breast_constraint(
+        config,
+        device=device,
+        output_path=Path(train_cfg.get("output_path", "./results_kpta_25d_net")),
+    )
 
     print(f"Config: {config_path}")
     print(f"Checkpoint: {checkpoint_path}")
     print(f"Validation set: {split_path} ({len(dataset)} samples)")
     print(f"Output: {output_dir}")
+    print(
+        "Whole-breast inference constraint: "
+        f"{'enabled' if whole_breast_constraint is not None else 'disabled'}"
+    )
 
     rows = []
     use_amp = device.type == "cuda"
@@ -242,6 +252,14 @@ def main():
                 output = model(images, return_dict=True)
                 logits = output["seg_logits"] if isinstance(output, dict) else output
                 probabilities = torch.sigmoid(logits)
+            if whole_breast_constraint is not None:
+                probabilities, _ = (
+                    whole_breast_constraint.constrain_probabilities(
+                        probabilities,
+                        names,
+                        dataset,
+                    )
+                )
 
             probabilities = probabilities[:, 0].float().cpu().numpy()
             masks = masks[:, 0].numpy()

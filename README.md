@@ -182,6 +182,61 @@ python train/train_kpta.py --config configs/kpta_net.yaml
 python train/train_kpta.py --config configs/kpta_25d_net.yaml
 ```
 
+### 推理阶段全乳腺区域约束
+
+仓库支持使用冻结的 nnU-Net v1 全乳腺分割模型，在验证和测试阶段去除乳腺区域之外的肿瘤假阳性。该功能不会修改训练样本、肿瘤模型输入、损失函数或 checkpoint，已有肿瘤模型权重可以直接使用。
+
+```text
+center pre-contrast volume
+        -> frozen 3D nnU-Net whole-breast model
+        -> center-slice breast mask
+
+sigmoid(tumor_logits) * breast_mask
+        -> final tumor prediction
+```
+
+安装可选依赖：
+
+```bash
+pip install -r requirements-whole-breast.txt
+```
+
+建议先单独检查 whole-breast 模型与 BreastDM 的方向和覆盖范围，不加载肿瘤模型：
+
+```bash
+python check_whole_breast_adapter.py \
+  --config configs/kpta_25d_net_whole_breast.yaml \
+  --split val
+```
+
+输出图依次为 `pre-contrast | breast mask | overlay`。如果出现上下或左右翻转，可修改 `whole_breast.flip_axes`；如果乳腺边缘覆盖不足，可调整 `breast_threshold` 或 `dilation_pixels`。
+
+使用启用区域约束的配置训练/验证：
+
+```bash
+python train/train_kpta.py \
+  --config configs/kpta_25d_net_whole_breast.yaml
+```
+
+训练 batch 完全不调用全乳腺模型。第一次 validation 时才会懒加载 nnU-Net，并按病例缓存乳腺 mask；后续 validation、best-test 和 final-test 直接复用缓存。
+
+仅对已有 best tumor checkpoint 做最终测试与可视化：
+
+```bash
+python visualize_kpta_25d_test.py \
+  --config configs/kpta_25d_net_whole_breast.yaml \
+  --checkpoint results_kpta_25d_net/best_model.pth
+```
+
+默认优先从 `seg/{val,test}/images/<case>/VIBRANT/` 重建完整 pre-contrast volume。如果该目录不存在，则退回到 `processed_25d_dce` 的中心 pre 切片。为降低跨数据集不适配造成的真阳性损失，乳腺 mask 默认向外膨胀 5 像素；空 mask 或面积异常时退化为全图 mask，不执行错误裁剪。
+
+关闭功能时保持原评估行为：
+
+```yaml
+whole_breast:
+  enabled: false
+```
+
 训练入口会：
 
 1. 使用 AdamW 和 YAML 中配置的 scheduler。

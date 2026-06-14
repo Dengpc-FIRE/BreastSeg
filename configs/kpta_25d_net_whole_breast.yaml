@@ -12,10 +12,53 @@ dataset:
   type: "breastdm_25d"
   img_size: 256
 
-# Inference-only whole-breast constraint. When disabled, validation/test
-# behavior is exactly the same as the original tumor-only pipeline.
+# This section is used only by validation/test inference. It is never read by
+# the tumor Dataset, tumor model, loss, optimizer, or training forward pass.
 whole_breast:
-  enabled: false
+  enabled: true
+  backend: "nnunet_v1"
+  model_folder: "./nnUNet/3d_fullres/Task555_breast/nnUNetTrainerV2__nnUNetPlansv2.1"
+  folds: [0]
+  checkpoint_name: "model_best"
+
+  # Reconstruct the complete 3D pre-contrast volume from raw BreastDM when
+  # available. If unavailable, the adapter falls back to processed 2.5D data.
+  raw_data_root: "./seg"
+  raw_pre_dir_name: "VIBRANT"
+  pre_phase_index: 0
+
+  # The bundled checkpoint is one-channel 3D nnU-Net with nonCT z-score
+  # normalization and identity axis transpose according to its plans.
+  normalization: "nnunet_nonct"
+  normalize_nonzero_only: false
+  clip_percentiles: [0.5, 99.5]
+  transpose_axes: [0, 1, 2]
+  flip_axes: []
+
+  foreground_class: 1
+  breast_threshold: 0.5
+  tumor_threshold: 0.5
+  step_size: 0.5
+  use_gaussian: true
+  do_mirroring: false
+  mixed_precision: true
+
+  # Slightly enlarge the breast ROI to avoid clipping peripheral tumors under
+  # cross-dataset/domain mismatch. Dilation is in-plane only by default.
+  dilation_pixels: 5
+  dilation_slices: 0
+
+  # Safety checks: an implausible or empty mask must not erase tumor output.
+  min_breast_fraction: 0.01
+  max_breast_fraction: 0.95
+  invalid_mask_policy: "full_mask"
+  runtime_failure_policy: "error"
+  verbose: true
+
+  # Each case is inferred once. Repeated validation epochs reuse this cache.
+  cache:
+    enabled: true
+    dir: "./results_kpta_25d_net/whole_breast_cache"
 
 scheduler:
   enabled: true
@@ -85,3 +128,4 @@ ablation:
   disable_boundary_head: false
   disable_uncertainty_head: false
   disable_attention_smooth_loss: false
+

@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Optional inference-only dependencies for the bundled nnU-Net v1 checkpoint.
+nnunet==1.7.1
+batchgenerators==0.25.1
+scipy==1.10.1
+SimpleITK==2.3.1

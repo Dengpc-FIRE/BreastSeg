@@ -58,6 +58,9 @@ from train.train_config import (  # noqa: E402
     load_config,
     resolve_config_path,
 )
+from inference.whole_breast_constraint import (  # noqa: E402
+    build_whole_breast_constraint,
+)
 
 
 class BreastDM2DDataset(Dataset):
@@ -153,16 +156,44 @@ def build_dataset(
     raise ValueError(f"Unsupported dataset.type: {dataset_type!r}")
 
 
-def evaluate(model, loader, device, desc: str):
+def evaluate(
+    model,
+    loader,
+    device,
+    desc: str,
+    whole_breast_constraint=None,
+):
+    """Evaluate tumor segmentation, optionally removing extra-breast FP.
+
+    The whole-breast model is called only from this inference function.  The
+    training dataset, tumor-model forward pass, loss, and optimizer remain
+    completely independent of whole-breast masks.
+    """
     model.eval()
     totals = {"dice": [], "iou": [], "sensitivity": [], "precision": []}
     with torch.inference_mode():
-        for images, masks, _ in tqdm(loader, desc=desc, leave=False):
+        for images, masks, names in tqdm(loader, desc=desc, leave=False):
             images = images.to(device, non_blocking=True)
             masks = masks.to(device, non_blocking=True)
             with autocast("cuda", enabled=device.type == "cuda"):
                 logits, _ = unpack_model_output(model(images))
-            predictions = (torch.sigmoid(logits) > 0.5).float()
+            tumor_probabilities = torch.sigmoid(logits)
+            if whole_breast_constraint is None:
+                # Keep the historical evaluation behavior byte-for-byte when
+                # whole_breast.enabled is false.
+                predictions = (tumor_probabilities > 0.5).float()
+            else:
+                final_probabilities, _ = (
+                    whole_breast_constraint.constrain_probabilities(
+                        tumor_probabilities,
+                        names,
+                        loader.dataset,
+                    )
+                )
+                predictions = (
+                    final_probabilities
+                    >= whole_breast_constraint.tumor_threshold
+                ).float()
             targets = masks.float()
             dims = (1, 2, 3)
             tp = (predictions * targets).sum(dim=dims)
@@ -287,6 +318,13 @@ def main() -> int:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model_from_config(config).to(device)
     loss_fn = build_loss_from_config(config)
+    # This object is intentionally lazy: the frozen nnU-Net checkpoint is not
+    # loaded here. It is loaded only when evaluate() first requests a mask.
+    whole_breast_constraint = build_whole_breast_constraint(
+        config,
+        device=device,
+        output_path=output_path,
+    )
     epochs = int(train_cfg["epochs"])
     optimizer = optim.AdamW(
         model.parameters(),
@@ -305,7 +343,9 @@ def main() -> int:
         f"Device: {device}\n"
         f"Samples: train={len(train_dataset)}, val={len(val_dataset)}, "
         f"test={len(test_dataset)}\n"
-        f"Scheduler: {scheduler_name}"
+        f"Scheduler: {scheduler_name}\n"
+        f"Whole-breast inference constraint: "
+        f"{'enabled' if whole_breast_constraint is not None else 'disabled'}"
     )
 
     best_dice = -1.0
@@ -335,7 +375,13 @@ def main() -> int:
             running_loss += loss.item()
             progress.set_postfix(loss=f"{loss.item():.4f}")
 
-        val_metrics = evaluate(model, val_loader, device, "Validation")
+        val_metrics = evaluate(
+            model,
+            val_loader,
+            device,
+            "Validation",
+            whole_breast_constraint=whole_breast_constraint,
+        )
         if scheduler is not None:
             if scheduler_uses_metric:
                 scheduler.step(val_metrics[0])
@@ -351,7 +397,13 @@ def main() -> int:
         if val_metrics[0] > best_dice:
             best_dice = val_metrics[0]
             torch.save(model.state_dict(), best_model_path)
-            test_metrics = evaluate(model, test_loader, device, "Testing best")
+            test_metrics = evaluate(
+                model,
+                test_loader,
+                device,
+                "Testing best",
+                whole_breast_constraint=whole_breast_constraint,
+            )
             print(
                 f"[test_dice] epoch={epoch} val_dice={best_dice:.4f} "
                 f"test_dice={test_metrics[0]:.4f} "
@@ -361,7 +413,13 @@ def main() -> int:
             )
 
     model.load_state_dict(torch.load(best_model_path, map_location=device))
-    final_metrics = evaluate(model, test_loader, device, "Final testing")
+    final_metrics = evaluate(
+        model,
+        test_loader,
+        device,
+        "Final testing",
+        whole_breast_constraint=whole_breast_constraint,
+    )
     print(
         "Final test | "
         f"dice={final_metrics[0]:.4f} | iou={final_metrics[1]:.4f} | "
