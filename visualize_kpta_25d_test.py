@@ -8,7 +8,12 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from train.train_config import build_model_from_config, load_config, resolve_config_path
+from train.train_config import (
+    build_model_from_config,
+    checkpoint_name_from_config,
+    load_config,
+    resolve_config_path,
+)
 from inference.whole_breast_constraint import build_whole_breast_constraint
 from visualize_kpta_25d_val import (
     KPTA25DSegmentationDataset,
@@ -29,7 +34,10 @@ def main():
     parser.add_argument(
         "--checkpoint",
         default=None,
-        help="Default: <train.output_path>/best_model.pth",
+        help=(
+            "Default: <train.output_path>/best_model_<config-name>.pth. "
+            "An explicit legacy best_model.pth path is still supported."
+        ),
     )
     parser.add_argument(
         "--split_path",
@@ -63,7 +71,7 @@ def main():
         args.checkpoint
         or (
             Path(train_cfg.get("output_path", "./results_kpta_25d_net"))
-            / "best_model.pth"
+            / checkpoint_name_from_config(config_path)
         )
     )
     output_dir = Path(

@@ -13,7 +13,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from train.train_config import build_model_from_config, load_config, resolve_config_path
+from train.train_config import (
+    build_model_from_config,
+    checkpoint_name_from_config,
+    load_config,
+    resolve_config_path,
+)
 from inference.whole_breast_constraint import build_whole_breast_constraint
 
 
@@ -164,7 +169,10 @@ def main():
     parser.add_argument(
         "--checkpoint",
         default=None,
-        help="Default: <train.output_path>/best_model.pth",
+        help=(
+            "Default: <train.output_path>/best_model_<config-name>.pth. "
+            "An explicit legacy best_model.pth path is still supported."
+        ),
     )
     parser.add_argument(
         "--split_path",
@@ -196,7 +204,10 @@ def main():
     split_path = Path(args.split_path or train_cfg.get("val_path", ""))
     checkpoint_path = Path(
         args.checkpoint
-        or (Path(train_cfg.get("output_path", "./results_kpta_25d_net")) / "best_model.pth")
+        or (
+            Path(train_cfg.get("output_path", "./results_kpta_25d_net"))
+            / checkpoint_name_from_config(config_path)
+        )
     )
     output_dir = Path(
         args.output_dir

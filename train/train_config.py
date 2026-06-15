@@ -1,5 +1,6 @@
 from copy import deepcopy
 from pathlib import Path
+import re
 from typing import Any, Dict, Optional
 
 
@@ -65,3 +66,20 @@ def resolve_config_path(path: Optional[str]) -> Optional[str]:
     if project_path.exists():
         return str(project_path)
     return path
+
+
+def checkpoint_name_from_config(
+    config_path: str,
+    prefix: str = "best_model",
+) -> str:
+    """Build a collision-free checkpoint name from the YAML file name.
+
+    Example:
+        configs/kpta_25d_net_lr2e-4.yaml
+        -> best_model_kpta_25d_net_lr2e-4.pth
+    """
+    config_stem = Path(config_path).stem
+    safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", config_stem).strip("._-")
+    if not safe_stem:
+        safe_stem = "config"
+    return f"{prefix}_{safe_stem}.pth"

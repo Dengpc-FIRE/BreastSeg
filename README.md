@@ -225,10 +225,12 @@ python train/train_kpta.py \
 ```bash
 python visualize_kpta_25d_test.py \
   --config configs/kpta_25d_net_whole_breast.yaml \
-  --checkpoint results_kpta_25d_net/best_model.pth
+  --checkpoint results_kpta_25d_net/best_model_kpta_25d_net.pth
 ```
 
 默认优先从 `seg/{val,test}/images/<case>/VIBRANT/` 重建完整 pre-contrast volume。如果该目录不存在，则退回到 `processed_25d_dce` 的中心 pre 切片。为降低跨数据集不适配造成的真阳性损失，乳腺 mask 默认向外膨胀 5 像素；空 mask 或面积异常时退化为全图 mask，不执行错误裁剪。
+
+PyTorch 2.6 及以上默认使用 `weights_only=True`，与 nnU-Net v1 的旧 checkpoint 格式不兼容。启用配置中的 `trust_checkpoint: true` 后，代码只在读取该本地可信 checkpoint 时临时使用 `weights_only=False`，读取完成后立即恢复原始 `torch.load`。
 
 关闭功能时保持原评估行为：
 
@@ -240,9 +242,9 @@ whole_breast:
 训练入口会：
 
 1. 使用 AdamW 和 YAML 中配置的 scheduler。
-2. 在验证集 Dice 刷新时保存 `<output_path>/best_model.pth`。
+2. 在验证集 Dice 刷新时保存 `<output_path>/best_model_<配置文件名>.pth`，避免多个实验互相覆盖。
 3. 每次刷新 best model 后，以 `eval + inference_mode` 在测试集上评估并输出 `[test_dice]`，不会反向传播。
-4. 完成全部 epoch 后重新加载 `best_model.pth` 进行最终测试，而不是使用最后一轮权重。
+4. 完成全部 epoch 后重新加载对应配置的 best model 进行最终测试，而不是使用最后一轮权重。
 
 主要指标为 Dice、IoU、Sensitivity 和 Precision，二值化阈值在训练评估中默认为 `0.5`。
 
@@ -323,14 +325,14 @@ python train/train_kpta.py --config configs/kpta_25d_net.yaml \
 ```bash
 python visualize_kpta_25d_test.py \
   --config configs/kpta_25d_net.yaml \
-  --checkpoint results_kpta_25d_net/best_model.pth \
+  --checkpoint results_kpta_25d_net/best_model_kpta_25d_net.pth \
   --threshold 0.5
 ```
 
 如不传 `--checkpoint`，脚本默认读取 YAML 中：
 
 ```text
-<train.output_path>/best_model.pth
+<train.output_path>/best_model_<配置文件名>.pth
 ```
 
 输出默认保存在：
@@ -349,7 +351,7 @@ python visualize_kpta_25d_test.py \
 ```bash
 python visualize_kpta_25d_val.py \
   --config configs/kpta_25d_net.yaml \
-  --checkpoint results_kpta_25d_net/best_model.pth
+  --checkpoint results_kpta_25d_net/best_model_kpta_25d_net.pth
 ```
 
 ## Sanity Checks

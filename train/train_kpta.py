@@ -55,6 +55,7 @@ from train.losses import unpack_model_output  # noqa: E402
 from train.train_config import (  # noqa: E402
     build_loss_from_config,
     build_model_from_config,
+    checkpoint_name_from_config,
     load_config,
     resolve_config_path,
 )
@@ -349,7 +350,10 @@ def main() -> int:
     )
 
     best_dice = -1.0
-    best_model_path = output_path / "best_model.pth"
+    # Add the YAML file name to prevent experiments sharing output_path from
+    # overwriting each other's best checkpoint.
+    best_model_path = output_path / checkpoint_name_from_config(config_path)
+    print(f"Best checkpoint: {best_model_path}")
     for epoch in range(1, epochs + 1):
         model.train()
         running_loss = 0.0

@@ -20,6 +20,9 @@ whole_breast:
   model_folder: "./nnUNet/3d_fullres/Task555_breast/nnUNetTrainerV2__nnUNetPlansv2.1"
   folds: [0]
   checkpoint_name: "model_best"
+  # Required for legacy nnU-Net v1 checkpoints under PyTorch 2.6+. Enable only
+  # because this checkpoint is local and its source is trusted.
+  trust_checkpoint: true
 
   # Reconstruct the complete 3D pre-contrast volume from raw BreastDM when
   # available. If unavailable, the adapter falls back to processed 2.5D data.
@@ -128,4 +131,3 @@ ablation:
   disable_boundary_head: false
   disable_uncertainty_head: false
   disable_attention_smooth_loss: false
-

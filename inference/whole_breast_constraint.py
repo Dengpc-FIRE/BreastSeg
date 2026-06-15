@@ -21,6 +21,8 @@ import inspect
 import json
 import re
 import warnings
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -63,6 +65,38 @@ def split_case_and_slice(file_name: str) -> Tuple[str, str]:
     return stem, stem
 
 
+@contextmanager
+def _trusted_legacy_torch_load(enabled: bool):
+    """Make nnU-Net v1 checkpoints loadable with PyTorch 2.6+.
+
+    PyTorch 2.6 changed ``torch.load`` to default to ``weights_only=True``.
+    nnU-Net v1 checkpoints contain legacy NumPy/Python metadata, so nnU-Net's
+    internal unqualified ``torch.load(path)`` call fails under that default.
+
+    The compatibility override is deliberately scoped to checkpoint loading
+    and restored immediately afterwards. It must only be enabled for a
+    checkpoint whose source is trusted.
+    """
+    if not enabled:
+        yield
+        return
+
+    original_torch_load = torch.load
+
+    @wraps(original_torch_load)
+    def legacy_torch_load(*args, **kwargs):
+        # Preserve an explicit caller choice, but supply the legacy behavior
+        # for nnU-Net v1 calls that omit weights_only.
+        kwargs.setdefault("weights_only", False)
+        return original_torch_load(*args, **kwargs)
+
+    torch.load = legacy_torch_load
+    try:
+        yield
+    finally:
+        torch.load = original_torch_load
+
+
 class WholeBreastConstraint:
     """Generate and cache whole-breast masks for validation/test inference.
 
@@ -100,6 +134,9 @@ class WholeBreastConstraint:
         self.folds = self.config.get("folds", [0])
         self.checkpoint_name = str(
             self.config.get("checkpoint_name", "model_best")
+        )
+        self.trust_checkpoint = bool(
+            self.config.get("trust_checkpoint", False)
         )
         self.foreground_class = int(self.config.get("foreground_class", 1))
         self.breast_threshold = float(
@@ -414,6 +451,9 @@ class WholeBreastConstraint:
             "mirror_axes": (
                 self._trainer.data_aug_params.get("mirror_axes")
                 if self.do_mirroring
+                # Older nnU-Net v1 releases call len(mirror_axes) even when
+                # do_mirroring=False, so an empty tuple is required instead
+                # of None.
                 else ()
             ),
             "use_sliding_window": True,
@@ -546,6 +586,12 @@ class WholeBreastConstraint:
     def _ensure_nnunet_loaded(self) -> None:
         if self._trainer is not None:
             return
+        if not self.trust_checkpoint:
+            raise ValueError(
+                "The nnU-Net v1 checkpoint requires legacy pickle loading on "
+                "PyTorch 2.6+. Set whole_breast.trust_checkpoint: true only "
+                "when this local checkpoint comes from a trusted source."
+            )
         if self.device.type != "cuda":
             raise RuntimeError(
                 "The bundled nnU-Net v1 3D predictor requires CUDA. "
@@ -566,12 +612,16 @@ class WholeBreastConstraint:
                 "`pip install -r requirements-whole-breast.txt`."
             ) from exc
 
-        trainer, checkpoint_params = load_model_and_checkpoint_files(
-            str(self.model_folder),
-            folds=self.folds,
-            mixed_precision=self.mixed_precision,
-            checkpoint_name=self.checkpoint_name,
-        )
+        # nnU-Net v1 calls torch.load without the PyTorch 2.6 weights_only
+        # argument. Temporarily use legacy loading only for this trusted local
+        # checkpoint, then restore torch.load before inference continues.
+        with _trusted_legacy_torch_load(self.trust_checkpoint):
+            trainer, checkpoint_params = load_model_and_checkpoint_files(
+                str(self.model_folder),
+                folds=self.folds,
+                mixed_precision=self.mixed_precision,
+                checkpoint_name=self.checkpoint_name,
+            )
         if not checkpoint_params:
             raise RuntimeError(
                 f"No checkpoint parameters loaded from {self.model_folder}"
