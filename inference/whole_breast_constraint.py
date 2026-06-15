@@ -414,7 +414,7 @@ class WholeBreastConstraint:
             "mirror_axes": (
                 self._trainer.data_aug_params.get("mirror_axes")
                 if self.do_mirroring
-                else None
+                else ()
             ),
             "use_sliding_window": True,
             "step_size": self.step_size,

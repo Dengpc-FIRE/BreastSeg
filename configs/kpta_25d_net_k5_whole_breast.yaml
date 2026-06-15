@@ -1,8 +1,8 @@
 train:
-  train_path: "./processed_25d_dce/train"
-  val_path: "./processed_25d_dce/val"
-  test_path: "./processed_25d_dce/test"
-  output_path: "./results_kpta_25d_net"
+  train_path: "./processed_25d_dce_k5/train"
+  val_path: "./processed_25d_dce_k5/val"
+  test_path: "./processed_25d_dce_k5/test"
+  output_path: "./results_kpta_25d_net_k5"
   epochs: 100
   batch_size: 4
   lr: 0.0002
@@ -114,9 +114,9 @@ loss:
   name: "kpta_25d_loss"
   bce_weight: 0.5
   lambda_boundary: 0.2
-  lambda_uncertainty: 0.1
-  lambda_attention_smooth: 0.01
-  boundary_thickness: 3
+  lambda_uncertainty: 0.05
+  lambda_attention_smooth: 0.005
+  boundary_thickness: 1
 
 ablation:
   disable_kinetic_maps: false
