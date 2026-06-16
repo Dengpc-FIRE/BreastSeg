@@ -3,7 +3,7 @@ train:
   val_path: "./processed_25d_dce/val"
   test_path: "./processed_25d_dce/test"
   output_path: "./results_kpta_25d_net"
-  epochs: 50
+  epochs: 100
   batch_size: 4
   lr: 0.0002
   num_workers: 4
@@ -46,29 +46,29 @@ model:
   phase_attention_type: "pdwa"
   use_enhancement_prior: true
   use_kinetic_bias: true
-  use_difference_refinement: false
+  use_difference_refinement: true
   residual_mean_weight: 0.5
   lambda_enh_init: 1.0
-  gamma_diff_init: 0.0
+  gamma_diff_init: 0.5
   phase_attention: true
-  use_uncertainty_head: false
+  use_uncertainty_head: true
   use_boundary_head: true
-  use_uncertainty_refinement: false
+  use_uncertainty_refinement: true
   return_dict: true
   hybrid_encoder:
     stem_type: "resblock"
     bottleneck_type: "swin"
     transformer_depth: 2
-    window_size: 7
+    window_size: 8
     num_heads: 4
 
 loss:
   name: "kpta_25d_loss"
   bce_weight: 0.3
-  lambda_boundary: 0.05
-  lambda_uncertainty: 0.0
-  lambda_attention_smooth: 0.0
-  boundary_thickness: 2
+  lambda_boundary: 0.2
+  lambda_uncertainty: 0.05
+  lambda_attention_smooth: 0.005
+  boundary_thickness: 1
 
 ablation:
   disable_kinetic_maps: false
@@ -79,4 +79,4 @@ ablation:
   disable_uncertainty_refinement: false
   disable_boundary_head: false
   disable_uncertainty_head: false
-  disable_attention_smooth_loss: true
+  disable_attention_smooth_loss: false
