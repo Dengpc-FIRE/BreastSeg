@@ -379,6 +379,12 @@ def main() -> int:
         config,
         epochs,
     )
+    early_cfg = config.get("early_stopping", {})
+    early_enabled = bool(early_cfg.get("enabled", False))
+    early_patience = int(early_cfg.get("patience", 25))
+    early_min_delta = float(early_cfg.get("min_delta", 1e-4))
+    early_start_epoch = int(early_cfg.get("start_epoch", 40))
+    epochs_without_improvement = 0
     scaler = GradScaler("cuda", enabled=device.type == "cuda")
     print(
         f"Config: {config_path}\n"
@@ -389,6 +395,15 @@ def main() -> int:
         f"Input phase indices: "
         f"{input_phase_indices if input_phase_indices is not None else 'all'}\n"
         f"Scheduler: {scheduler_name}\n"
+        f"Early stopping: "
+        f"{'enabled' if early_enabled else 'disabled'}"
+        + (
+            f" (patience={early_patience}, min_delta={early_min_delta:g}, "
+            f"start_epoch={early_start_epoch})"
+            if early_enabled
+            else ""
+        )
+        + "\n"
         f"Whole-breast inference constraint: "
         f"{'enabled' if whole_breast_constraint is not None else 'disabled'}"
     )
@@ -442,8 +457,10 @@ def main() -> int:
             f"val_sens={val_metrics[2]:.4f} | val_prec={val_metrics[3]:.4f} | "
             f"lr={current_lr:.6g}"
         )
-        if val_metrics[0] > best_dice:
+        improved = val_metrics[0] > best_dice + early_min_delta
+        if improved:
             best_dice = val_metrics[0]
+            epochs_without_improvement = 0
             torch.save(model.state_dict(), best_model_path)
             test_metrics = evaluate(
                 model,
@@ -459,6 +476,22 @@ def main() -> int:
                 f"test_sens={test_metrics[2]:.4f} "
                 f"test_prec={test_metrics[3]:.4f}"
             )
+        else:
+            epochs_without_improvement += 1
+
+        if early_enabled and epoch >= early_start_epoch:
+            print(
+                f"Early stopping monitor | no_improve="
+                f"{epochs_without_improvement}/{early_patience} | "
+                f"best_val_dice={best_dice:.4f}"
+            )
+            if epochs_without_improvement >= early_patience:
+                print(
+                    f"Early stopping triggered at epoch {epoch}. "
+                    f"Best val Dice: {best_dice:.4f}. "
+                    f"Checkpoint: {best_model_path}"
+                )
+                break
 
     model.load_state_dict(torch.load(best_model_path, map_location=device))
     final_metrics = evaluate(
