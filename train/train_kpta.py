@@ -67,10 +67,21 @@ from inference.whole_breast_constraint import (  # noqa: E402
 class BreastDM2DDataset(Dataset):
     """Load KPTA 2D samples stored as [H,W,C] NumPy arrays."""
 
-    def __init__(self, data_dir: str, gt_dir: str, img_size: int = 256) -> None:
+    def __init__(
+        self,
+        data_dir: str,
+        gt_dir: str,
+        img_size: int = 256,
+        input_phase_indices=None,
+    ) -> None:
         self.data_dir = data_dir
         self.gt_dir = gt_dir
         self.img_size = img_size
+        self.input_phase_indices = (
+            [int(index) for index in input_phase_indices]
+            if input_phase_indices is not None
+            else None
+        )
         self.ids = (
             sorted(f for f in os.listdir(data_dir) if f.endswith(".npy"))
             if os.path.isdir(data_dir)
@@ -87,6 +98,8 @@ class BreastDM2DDataset(Dataset):
             raise ValueError(
                 f"Expected 2D KPTA input [H,W,C], got {data.shape} for {file_name}"
             )
+        if self.input_phase_indices is not None:
+            data = data[:, :, self.input_phase_indices]
         image = torch.from_numpy(
             (data.astype(np.float32) / 255.0).transpose(2, 0, 1)
         )
@@ -100,9 +113,14 @@ class BreastDM2DDataset(Dataset):
 class BreastDM25DDataset(Dataset):
     """Load KPTA 2.5D samples stored as [K,T,H,W] NumPy arrays."""
 
-    def __init__(self, data_dir: str, gt_dir: str) -> None:
+    def __init__(self, data_dir: str, gt_dir: str, input_phase_indices=None) -> None:
         self.data_dir = data_dir
         self.gt_dir = gt_dir
+        self.input_phase_indices = (
+            [int(index) for index in input_phase_indices]
+            if input_phase_indices is not None
+            else None
+        )
         self.ids = (
             sorted(f for f in os.listdir(data_dir) if f.endswith(".npy"))
             if os.path.isdir(data_dir)
@@ -120,6 +138,8 @@ class BreastDM25DDataset(Dataset):
                 f"Expected 2.5D KPTA input [K,T,H,W], got {data.shape} "
                 f"for {file_name}"
             )
+        if self.input_phase_indices is not None:
+            data = data[:, self.input_phase_indices]
         image = torch.from_numpy(data.astype(np.float32))
         mask = _load_mask(
             os.path.join(self.gt_dir, file_name.replace(".npy", ".png")),
@@ -147,13 +167,23 @@ def build_dataset(
     split_path: str,
     dataset_type: str = "breastdm_2d",
     img_size: int = 256,
+    input_phase_indices=None,
 ) -> Dataset:
     data_dir = os.path.join(split_path, "data")
     gt_dir = os.path.join(split_path, "GT")
     if dataset_type in {"breastdm_25d", "25d", "kpta_25d"}:
-        return BreastDM25DDataset(data_dir, gt_dir)
+        return BreastDM25DDataset(
+            data_dir,
+            gt_dir,
+            input_phase_indices=input_phase_indices,
+        )
     if dataset_type in {"breastdm_2d", "2d", "kpta_2d"}:
-        return BreastDM2DDataset(data_dir, gt_dir, img_size=img_size)
+        return BreastDM2DDataset(
+            data_dir,
+            gt_dir,
+            img_size=img_size,
+            input_phase_indices=input_phase_indices,
+        )
     raise ValueError(f"Unsupported dataset.type: {dataset_type!r}")
 
 
@@ -279,13 +309,25 @@ def main() -> int:
     dataset_cfg = config.get("dataset", {})
     dataset_type = dataset_cfg.get("type", "breastdm_2d")
     img_size = int(dataset_cfg.get("img_size", 256))
+    input_phase_indices = dataset_cfg.get("input_phase_indices")
     train_dataset = build_dataset(
         train_cfg["train_path"],
         dataset_type,
         img_size,
+        input_phase_indices=input_phase_indices,
     )
-    val_dataset = build_dataset(train_cfg["val_path"], dataset_type, img_size)
-    test_dataset = build_dataset(train_cfg["test_path"], dataset_type, img_size)
+    val_dataset = build_dataset(
+        train_cfg["val_path"],
+        dataset_type,
+        img_size,
+        input_phase_indices=input_phase_indices,
+    )
+    test_dataset = build_dataset(
+        train_cfg["test_path"],
+        dataset_type,
+        img_size,
+        input_phase_indices=input_phase_indices,
+    )
     if not train_dataset:
         raise ValueError(f"No training samples found in {train_cfg['train_path']}")
 
@@ -344,6 +386,8 @@ def main() -> int:
         f"Device: {device}\n"
         f"Samples: train={len(train_dataset)}, val={len(val_dataset)}, "
         f"test={len(test_dataset)}\n"
+        f"Input phase indices: "
+        f"{input_phase_indices if input_phase_indices is not None else 'all'}\n"
         f"Scheduler: {scheduler_name}\n"
         f"Whole-breast inference constraint: "
         f"{'enabled' if whole_breast_constraint is not None else 'disabled'}"

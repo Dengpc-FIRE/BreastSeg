@@ -25,10 +25,15 @@ from inference.whole_breast_constraint import build_whole_breast_constraint
 class KPTA25DSegmentationDataset(Dataset):
     """Load processed SA-KPTA-Net samples with shape [K,T,H,W]."""
 
-    def __init__(self, split_path: str):
+    def __init__(self, split_path: str, input_phase_indices=None):
         self.split_path = Path(split_path)
         self.data_dir = self.split_path / "data"
         self.gt_dir = self.split_path / "GT"
+        self.input_phase_indices = (
+            [int(index) for index in input_phase_indices]
+            if input_phase_indices is not None
+            else None
+        )
         if not self.data_dir.is_dir():
             raise FileNotFoundError(f"Data directory not found: {self.data_dir}")
         if not self.gt_dir.is_dir():
@@ -47,6 +52,8 @@ class KPTA25DSegmentationDataset(Dataset):
             raise ValueError(
                 f"Expected [K,T,H,W] input, got {image.shape} for {data_path.name}"
             )
+        if self.input_phase_indices is not None:
+            image = image[:, self.input_phase_indices]
 
         gt_path = self.gt_dir / f"{data_path.stem}.png"
         gt = cv2.imread(str(gt_path), cv2.IMREAD_GRAYSCALE)
@@ -109,6 +116,56 @@ def color_overlay(base: np.ndarray, gt: np.ndarray, pred: np.ndarray) -> np.ndar
     return overlay
 
 
+def _binary_surface(mask: np.ndarray) -> np.ndarray:
+    """Return the 2D binary boundary pixels of a mask."""
+    mask = mask.astype(bool)
+    if not mask.any():
+        return np.zeros(mask.shape, dtype=bool)
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    eroded = cv2.erode(mask.astype(np.uint8), kernel, iterations=1).astype(bool)
+    return mask & ~eroded
+
+
+def hd95_2d(pred: np.ndarray, gt: np.ndarray) -> float:
+    """Compute symmetric 95th percentile Hausdorff distance in pixels.
+
+    The processed BreastDM samples do not carry physical pixel spacing, so this
+    value is reported in resized-image pixels rather than millimeters.
+    """
+    pred_bool = pred.astype(bool)
+    gt_bool = gt.astype(bool)
+    if not pred_bool.any() and not gt_bool.any():
+        return 0.0
+    if not pred_bool.any() or not gt_bool.any():
+        height, width = pred_bool.shape
+        return float(np.hypot(height, width))
+
+    pred_surface = _binary_surface(pred_bool)
+    gt_surface = _binary_surface(gt_bool)
+    if not pred_surface.any() or not gt_surface.any():
+        height, width = pred_bool.shape
+        return float(np.hypot(height, width))
+
+    # cv2.distanceTransform computes distance to the nearest zero pixel.
+    # Therefore surface pixels of the opposite mask are encoded as zero.
+    dist_to_gt = cv2.distanceTransform(
+        (~gt_surface).astype(np.uint8),
+        cv2.DIST_L2,
+        5,
+    )
+    dist_to_pred = cv2.distanceTransform(
+        (~pred_surface).astype(np.uint8),
+        cv2.DIST_L2,
+        5,
+    )
+    distances = np.concatenate(
+        [dist_to_gt[pred_surface], dist_to_pred[gt_surface]]
+    )
+    if distances.size == 0:
+        return 0.0
+    return float(np.percentile(distances, 95))
+
+
 def binary_metrics(pred: np.ndarray, gt: np.ndarray):
     pred_bool = pred.astype(bool)
     gt_bool = gt.astype(bool)
@@ -123,11 +180,14 @@ def binary_metrics(pred: np.ndarray, gt: np.ndarray):
     iou = 1.0 if iou_denom == 0 else tp / iou_denom
     sensitivity = 1.0 if tp + fn == 0 else tp / (tp + fn)
     precision = 1.0 if tp + fp == 0 else tp / (tp + fp)
+    accuracy = (tp + tn) / max(tp + fp + fn + tn, 1)
     return {
         "dice": dice,
         "iou": iou,
+        "hd95": hd95_2d(pred_bool, gt_bool),
         "sensitivity": sensitivity,
         "precision": precision,
+        "accuracy": accuracy,
         "tp": tp,
         "fp": fp,
         "fn": fn,
@@ -225,7 +285,11 @@ def main():
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    dataset = KPTA25DSegmentationDataset(str(split_path))
+    input_phase_indices = config.get("dataset", {}).get("input_phase_indices")
+    dataset = KPTA25DSegmentationDataset(
+        str(split_path),
+        input_phase_indices=input_phase_indices,
+    )
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -248,6 +312,10 @@ def main():
     print(f"Config: {config_path}")
     print(f"Checkpoint: {checkpoint_path}")
     print(f"Validation set: {split_path} ({len(dataset)} samples)")
+    print(
+        "Input phase indices: "
+        f"{input_phase_indices if input_phase_indices is not None else 'all'}"
+    )
     print(f"Output: {output_dir}")
     print(
         "Whole-breast inference constraint: "
@@ -321,8 +389,10 @@ def main():
         "name",
         "dice",
         "iou",
+        "hd95",
         "sensitivity",
         "precision",
+        "accuracy",
         "tp",
         "fp",
         "fn",
@@ -333,7 +403,7 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
 
-    metric_names = ("dice", "iou", "sensitivity", "precision")
+    metric_names = ("dice", "iou", "hd95", "sensitivity", "precision", "accuracy")
     means = {
         key: float(np.mean([row[key] for row in rows])) if rows else 0.0
         for key in metric_names
@@ -343,8 +413,10 @@ def main():
         f"threshold: {args.threshold:g}\n"
         f"mean_dice: {means['dice']:.6f}\n"
         f"mean_iou: {means['iou']:.6f}\n"
+        f"mean_hd95: {means['hd95']:.6f}\n"
         f"mean_sensitivity: {means['sensitivity']:.6f}\n"
         f"mean_precision: {means['precision']:.6f}\n"
+        f"mean_accuracy: {means['accuracy']:.6f}\n"
     )
     (output_dir / "summary.txt").write_text(summary, encoding="utf-8")
     print(summary)

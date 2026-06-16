@@ -90,7 +90,11 @@ def main():
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
 
-    dataset = KPTA25DSegmentationDataset(str(split_path))
+    input_phase_indices = config.get("dataset", {}).get("input_phase_indices")
+    dataset = KPTA25DSegmentationDataset(
+        str(split_path),
+        input_phase_indices=input_phase_indices,
+    )
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
@@ -113,6 +117,10 @@ def main():
     print(f"Config: {config_path}")
     print(f"Checkpoint: {checkpoint_path}")
     print(f"Test set: {split_path} ({len(dataset)} samples)")
+    print(
+        "Input phase indices: "
+        f"{input_phase_indices if input_phase_indices is not None else 'all'}"
+    )
     print(f"Output: {output_dir}")
     print(
         "Whole-breast inference constraint: "
@@ -192,8 +200,10 @@ def main():
         "name",
         "dice",
         "iou",
+        "hd95",
         "sensitivity",
         "precision",
+        "accuracy",
         "tp",
         "fp",
         "fn",
@@ -204,7 +214,7 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
 
-    metric_names = ("dice", "iou", "sensitivity", "precision")
+    metric_names = ("dice", "iou", "hd95", "sensitivity", "precision", "accuracy")
     means = {
         key: float(np.mean([row[key] for row in rows])) if rows else 0.0
         for key in metric_names
@@ -214,8 +224,10 @@ def main():
         f"threshold: {args.threshold:g}\n"
         f"mean_dice: {means['dice']:.6f}\n"
         f"mean_iou: {means['iou']:.6f}\n"
+        f"mean_hd95: {means['hd95']:.6f}\n"
         f"mean_sensitivity: {means['sensitivity']:.6f}\n"
         f"mean_precision: {means['precision']:.6f}\n"
+        f"mean_accuracy: {means['accuracy']:.6f}\n"
     )
     (output_dir / "summary.txt").write_text(summary, encoding="utf-8")
     print(summary)
