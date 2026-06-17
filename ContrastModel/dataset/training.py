@@ -113,7 +113,20 @@ def train_one_epoch(model, loader, optimizer, scaler, device, cfg) -> float:
             logits = align_logits(logits, masks)
             loss = segmentation_loss(logits, masks, extra, extra_weight)
         if not torch.isfinite(loss).all():
-            print("warning: skip non-finite loss batch")
+            finite_logits = torch.isfinite(logits)
+            finite_masks = torch.isfinite(masks)
+            if finite_logits.any():
+                logit_min = float(logits[finite_logits].detach().min().cpu())
+                logit_max = float(logits[finite_logits].detach().max().cpu())
+            else:
+                logit_min = float("nan")
+                logit_max = float("nan")
+            print(
+                "warning: skip non-finite loss batch "
+                f"loss={float(loss.detach().cpu()) if loss.numel() == 1 else 'non-scalar'} "
+                f"logits_finite={bool(finite_logits.all())} logits_range=({logit_min:.4g},{logit_max:.4g}) "
+                f"masks_finite={bool(finite_masks.all())}"
+            )
             continue
         scaler.scale(loss).backward()
         if max_grad_norm > 0:

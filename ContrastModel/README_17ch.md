@@ -72,6 +72,11 @@ mean_accuracy
 2D: TransUNet, Mobile-U-ViT, EMCAD, DeepLabV3Plus, Pytorch-UNet, MSDAHNet,
 Attention-Gated-Networks, PDPNet, UNetPlusPlus.
 
+PDPNet defaults to its `DPKNet` segmentation branch on full 17-channel slices
+(`use_location_branch: false`) because the original location-guided crop path is
+numerically fragile on this dataset. Set it to `true` only if you specifically
+want to reproduce the original crop-guided behavior.
+
 3D: HCRT, PLHN, nnU-Net.
 
 ## nnU-Net
@@ -94,4 +99,3 @@ python ContrastModel/nnUNet-master/test_17ch.py
 
 The custom trainer `nnUNetTrainerBreastDM17` reads `epochs`, `lr`, and
 `weight_decay` from `configs/breastdm_17ch.yaml`.
-

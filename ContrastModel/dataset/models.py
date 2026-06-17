@@ -284,11 +284,13 @@ def _build_attention_gated(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 def _build_pdpnet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
     with prepend_sys_path(model_dir):
-        dense = importlib.import_module("model.DenseNet5s")
         dpk = importlib.import_module("model.DPKNet")
+        seg = dpk.DPKNet(channels=cfg["model"]["input_channels"])
+        if not bool(cfg["model"].get("use_location_branch", False)):
+            return ProbOutputWrapper(seg)
+        dense = importlib.import_module("model.DenseNet5s")
         pdp = importlib.import_module("model.PDPNet")
         loc = dense.densenet121(ch_in=cfg["model"]["input_channels"])
-        seg = dpk.DPKNet(channels=cfg["model"]["input_channels"])
         return PDPNetWrapper(pdp.PDPNet(locmodel=loc, segmodel=seg))
 
 

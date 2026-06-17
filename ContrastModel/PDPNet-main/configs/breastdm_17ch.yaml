@@ -3,6 +3,7 @@ model:
   input_channels: 17
   out_channels: 1
   pretrained: false
+  use_location_branch: false
 data:
   mode: 2d
   train_path: ../../../processed_17ch_dce/train
@@ -19,7 +20,7 @@ train:
   num_workers: 4
   early_stopping: 0
   scheduler: reduce_on_plateau
-  amp: true
+  amp: false
   seed: 2026
   extra_loss_weight: 0.0
   max_grad_norm: 1.0
