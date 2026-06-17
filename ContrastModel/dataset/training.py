@@ -30,7 +30,7 @@ def segmentation_loss(logits: torch.Tensor, target: torch.Tensor, extra_loss: to
     bce = F.binary_cross_entropy_with_logits(logits, target)
     dice = dice_loss_with_logits(logits, target)
     loss = bce + dice
-    if extra_loss is not None:
+    if extra_loss is not None and extra_weight > 0 and torch.isfinite(extra_loss).all():
         loss = loss + float(extra_weight) * extra_loss
     return loss
 
@@ -104,14 +104,21 @@ def train_one_epoch(model, loader, optimizer, scaler, device, cfg) -> float:
     count = 0
     use_amp = bool(cfg["train"].get("amp", True)) and device.type == "cuda"
     extra_weight = float(cfg["train"].get("extra_loss_weight", 1.0))
+    max_grad_norm = float(cfg["train"].get("max_grad_norm", 0.0) or 0.0)
     for batch in loader:
         images, masks, _ = _move_batch(batch, device)
         optimizer.zero_grad(set_to_none=True)
-        with torch.cuda.amp.autocast(enabled=use_amp):
+        with torch.amp.autocast("cuda", enabled=use_amp):
             logits, extra = forward_model(model, images, masks)
             logits = align_logits(logits, masks)
             loss = segmentation_loss(logits, masks, extra, extra_weight)
+        if not torch.isfinite(loss).all():
+            print("warning: skip non-finite loss batch")
+            continue
         scaler.scale(loss).backward()
+        if max_grad_norm > 0:
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
         scaler.step(optimizer)
         scaler.update()
         total += float(loss.detach().cpu())
@@ -226,7 +233,7 @@ def train_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devi
     scheduler = None
     if str(cfg["train"].get("scheduler", "")).lower() == "reduce_on_plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", patience=5, factor=0.5)
-    scaler = torch.cuda.amp.GradScaler(enabled=bool(cfg["train"].get("amp", True)) and device.type == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=bool(cfg["train"].get("amp", True)) and device.type == "cuda")
 
     ckpt_dir = Path(cfg["output"]["checkpoint_dir"])
     log_path = Path(cfg["output"]["log_file"])
@@ -315,6 +322,8 @@ def _parse_args(default_config: Path) -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--num-workers", type=int, default=None)
+    parser.add_argument("--amp", dest="amp", action="store_true", default=None)
+    parser.add_argument("--no-amp", dest="amp", action="store_false")
     parser.add_argument("--checkpoint", type=str, default=None)
     return parser.parse_args()
 
@@ -328,6 +337,8 @@ def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
         cfg["train"]["batch_size"] = args.batch_size
     if args.num_workers is not None:
         cfg["train"]["num_workers"] = args.num_workers
+    if args.amp is not None:
+        cfg["train"]["amp"] = args.amp
 
 
 def run_train_cli(model_dir: str | Path, model_key: str) -> None:

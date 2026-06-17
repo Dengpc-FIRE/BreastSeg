@@ -63,6 +63,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "amp": True,
         "seed": 2026,
         "extra_loss_weight": 1.0,
+        "max_grad_norm": 0.0,
     },
     "eval": {
         "threshold": 0.5,

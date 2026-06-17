@@ -185,7 +185,9 @@ class PDPNetWrapper(nn.Module):
         logits = _logit_from_prob(logits_list[-1])
         extra = None
         if isinstance(losses, (list, tuple)) and losses:
-            extra = sum(loss for loss in losses if torch.is_tensor(loss))
+            finite_losses = [loss for loss in losses if torch.is_tensor(loss) and torch.isfinite(loss).all()]
+            if finite_losses:
+                extra = sum(finite_losses)
         return {"logits": logits, "extra_loss": extra}
 
 

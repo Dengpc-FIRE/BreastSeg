@@ -153,6 +153,7 @@ class PDPNet(nn.Module):
             x_center = []
             y_center = []
             patchsize = []
+            boxes = []
             for j in range(y.size(0)):
                 x_position, y_position = np.nonzero(y_np[j, 0])
                 if len(x_position) != 0:
@@ -167,18 +168,19 @@ class PDPNet(nn.Module):
                     
                 else:
                     x_min = 0
-                    x_max = 127
+                    x_max = x.size(2) - 1
                     y_min = 0
-                    y_max = 127
+                    y_max = x.size(3) - 1
                     
                     tx_center = x_min + (x_max - x_min) // 2
                     ty_center = y_min + (y_max - y_min) // 2
                     
-                    tpatchsize = 128
+                    tpatchsize = min(x.size(2), x.size(3))
                 
                 x_center.append(tx_center)
                 y_center.append(ty_center)
-                patchsize.append(tpatchsize)
+                patchsize.append(int(max(16, min(tpatchsize, x.size(2), x.size(3)))))
+                boxes.append((int(x_min), int(x_max), int(y_min), int(y_max)))
             
             for j in range(y.size(0)):
                 if x_center[j] + patchsize[j] // 2 > x.size(2):
@@ -194,11 +196,15 @@ class PDPNet(nn.Module):
                 cropx = x[j: j + 1, :, 
                           x_center[j] - patchsize[j] // 2: x_center[j] + patchsize[j] // 2, 
                           y_center[j] - patchsize[j] // 2: y_center[j] + patchsize[j] // 2]
-                cropx = (cropx - torch.min(cropx)) / (torch.max(cropx) - torch.min(cropx))
+                cropx_min = torch.min(cropx)
+                cropx = (cropx - cropx_min) / (torch.max(cropx) - cropx_min + 1e-6)
                 cropx = F.interpolate(cropx, (x.size(2), x.size(3)), mode = 'bicubic', align_corners = True)
                 cropxs.append(cropx)
                 
-                cropy = y[j: j + 1, :, x_min: x_max, y_min: y_max]
+                x_min, x_max, y_min, y_max = boxes[j]
+                cropy = y[j: j + 1, :, x_min: x_max + 1, y_min: y_max + 1]
+                if cropy.numel() == 0:
+                    cropy = y[j: j + 1]
                 cropy = F.interpolate(cropy.float(), (x.size(2), x.size(3)), mode = 'bilinear', align_corners = True)
                 cropy = (cropy > 0).long()
                 cropys.append(cropy)

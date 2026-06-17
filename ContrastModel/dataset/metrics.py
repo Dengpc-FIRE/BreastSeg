@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import math
+import os
 import warnings
 from pathlib import Path
 from typing import Dict, Iterable, List
@@ -18,6 +19,10 @@ _NDI_CHECKED = False
 
 def _get_ndi():
     global _NDI, _NDI_CHECKED
+    if os.environ.get("BREASTDM17_USE_SCIPY_HD95", "0") != "1":
+        _NDI_CHECKED = True
+        _NDI = None
+        return None
     if _NDI_CHECKED:
         return _NDI
     _NDI_CHECKED = True

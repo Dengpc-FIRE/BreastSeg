@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import uuid
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -10,6 +12,38 @@ from torch.utils.data import Dataset
 
 
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".npy")
+
+
+def _load_cache(cache_path: Path) -> tuple[np.ndarray, np.ndarray] | None:
+    if not cache_path.exists():
+        return None
+    try:
+        with np.load(cache_path) as cached:
+            image = np.asarray(cached["image"], dtype=np.float32).copy()
+            mask = np.asarray(cached["mask"], dtype=np.float32).copy()
+        if image.ndim != 4 or mask.ndim != 4 or image.shape[1:] != mask.shape[1:]:
+            raise ValueError(f"bad cache shapes: image={image.shape}, mask={mask.shape}")
+        return image, mask
+    except Exception as exc:
+        print(f"[Warning] ignoring corrupted 3D cache {cache_path}: {exc}")
+        try:
+            cache_path.unlink()
+        except FileNotFoundError:
+            pass
+        return None
+
+
+def _write_cache_atomic(cache_path: Path, image: np.ndarray, mask: np.ndarray) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = cache_path.with_name(f".{cache_path.stem}.{os.getpid()}.{uuid.uuid4().hex}.tmp.npz")
+    try:
+        np.savez_compressed(tmp_path, image=image.astype(np.float32), mask=mask.astype(np.float32))
+        os.replace(tmp_path, cache_path)
+    finally:
+        try:
+            tmp_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _read_image_file(path: Path) -> np.ndarray:
@@ -98,9 +132,10 @@ def build_or_load_volume(
     raw_dataset_root = Path(raw_dataset_root)
     cache_path = Path(cache_root) / split / f"{patient_id}.npz"
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    if cache_path.exists():
-        cached = np.load(cache_path)
-        return {"image": cached["image"], "mask": cached["mask"], "id": patient_id}
+    cached = _load_cache(cache_path)
+    if cached is not None:
+        image, mask = cached
+        return {"image": image, "mask": mask, "id": patient_id}
 
     image_patient_dir = raw_dataset_root / split / "images" / patient_id
     label_patient_dir = raw_dataset_root / split / "labels" / patient_id
@@ -135,7 +170,7 @@ def build_or_load_volume(
     mask = (mask > 0).astype(np.float32)[None]
     image = _normalize(np.stack(stacks, axis=0), normalize)
 
-    np.savez_compressed(cache_path, image=image.astype(np.float32), mask=mask.astype(np.float32))
+    _write_cache_atomic(cache_path, image, mask)
     return {"image": image.astype(np.float32), "mask": mask.astype(np.float32), "id": patient_id}
 
 

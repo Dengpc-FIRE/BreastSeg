@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 from timm.models.layers import DropPath, to_3tuple, trunc_normal_
 import torch.nn.functional as F
-from sklearn.cluster import KMeans
 from Model.modelv5.logger import Logger as Log
 from Model.modelv5.contrast import momentum_update, l2_normalize, ProjectionHead
 from Model.modelv5.sinkhorn import distributed_sinkhorn
