@@ -16,7 +16,8 @@ processed_17ch_dce/
 processed_25d_dce/
 processed_25d_dce_k5/
 processed_25d_dce_k1/
-
+ContrastModel/dataset/processed_3d_17ch/
+ContrastModel/nnUNet-master/raw/
 # 模型权重文件（大文件）
 *.pth
 *.pt
