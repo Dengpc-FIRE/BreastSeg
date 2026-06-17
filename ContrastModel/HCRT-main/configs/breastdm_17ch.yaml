@@ -1,0 +1,39 @@
+model:
+  name: hcrt
+  input_channels: 17
+  out_channels: 1
+  pretrained: false
+  base_channels: 32
+  hidden_size: 256
+data:
+  mode: 3d
+  train_path: ../../../processed_17ch_dce/train
+  val_path: ../../../processed_17ch_dce/val
+  test_path: ../../../processed_17ch_dce/test
+  raw_dataset_root: ../../../seg
+  cache_root: ../../dataset/processed_3d_17ch/hcrt
+  patch_size: [48, 128, 128]
+  samples_per_volume: 4
+  positive_crop_prob: 0.7
+  normalize: zscore
+  label_phase:
+  allow_missing_phases: false
+train:
+  epochs: 100
+  batch_size: 1
+  lr: 0.0001
+  weight_decay: 0.00001
+  num_workers: 2
+  early_stopping: 30
+  scheduler: reduce_on_plateau
+  amp: true
+  seed: 2026
+eval:
+  threshold: 0.5
+  save_predictions: false
+  sliding_window_overlap: 0.5
+output:
+  checkpoint_dir: checkpoints
+  test_dir: test_results
+  log_file: training_log.csv
+

@@ -1,0 +1,62 @@
+experiment:
+  name: "plhn_breastdm_3d"
+  seed: 42
+  device: "cuda"
+
+data:
+  dataset: "BreastDM"
+  source_type: "seg"
+  seg_root: "../seg"
+  processed_root: "./reproduce_plhn/BreastDM_PLHN_3D"
+  convert_from_seg: true
+  force_convert: false
+  fold: 1
+  pre_phase: "VIBRANT"
+  post_phase: "VIBRANT+C8"
+  label_phase: "VIBRANT"
+  image_size: 256
+  mask_threshold: 0
+
+model:
+  name: "PLHN"
+  base_channels: 16
+  hidden_size: 192
+  transformer_layers: 4
+  window_size: 4
+  use_prototype_learning: true
+
+train:
+  epochs: 100
+  batch_size: 1
+  lr: 0.0001
+  weight_decay: 0.00001
+  num_workers: 0
+  amp: true
+  patch_size: [16, 128, 128]
+  samples_per_volume: 4
+  positive_crop_prob: 0.7
+
+scheduler:
+  enabled: true
+  factor: 0.5
+  patience: 8
+  min_lr: 0.000001
+
+loss:
+  fusion_bce_weight: 1.0
+  fusion_dice_weight: 1.0
+  raw_bce_weight: 1.0
+  raw_dice_weight: 8.0
+  prototype_bce_weight: 1.0
+  prototype_dice_weight: 1.5
+  contrast_weight: 0.3
+  ppc_weight: 0.003
+  ppd_weight: 0.0003
+
+eval:
+  threshold: 0.5
+  stride: [8, 64, 64]
+
+output:
+  output_dir: "./reproduce_plhn/results_plhn_breastdm_3d"
+  save_predictions: true
