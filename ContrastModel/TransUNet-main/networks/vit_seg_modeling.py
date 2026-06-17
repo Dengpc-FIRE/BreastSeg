@@ -15,7 +15,6 @@ import numpy as np
 
 from torch.nn import CrossEntropyLoss, Dropout, Softmax, Linear, Conv2d, LayerNorm
 from torch.nn.modules.utils import _pair
-from scipy import ndimage
 from . import vit_seg_configs as configs
 from .vit_seg_modeling_resnet_skip import ResNetV2
 
@@ -418,6 +417,10 @@ class VisionTransformer(nn.Module):
                 print('load_pretrained: grid-size from %s to %s' % (gs_old, gs_new))
                 posemb_grid = posemb_grid.reshape(gs_old, gs_old, -1)
                 zoom = (gs_new / gs_old, gs_new / gs_old, 1)
+                try:
+                    from scipy import ndimage
+                except Exception as exc:
+                    raise ImportError("scipy is required only when resizing pretrained TransUNet position embeddings") from exc
                 posemb_grid = ndimage.zoom(posemb_grid, zoom, order=1)  # th2np
                 posemb_grid = posemb_grid.reshape(1, gs_new * gs_new, -1)
                 posemb = posemb_grid
@@ -449,4 +452,3 @@ CONFIGS = {
     'R50-ViT-L_16': configs.get_r50_l16_config(),
     'testing': configs.get_testing(),
 }
-

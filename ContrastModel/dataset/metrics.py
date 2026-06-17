@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import math
+import warnings
 from pathlib import Path
 from typing import Dict, Iterable, List
 
@@ -11,22 +12,45 @@ import numpy as np
 METRIC_KEYS = ["dice", "iou", "hd95", "sensitivity", "precision", "accuracy"]
 
 
-try:
-    from scipy import ndimage as ndi
-except Exception:  # pragma: no cover - fallback is used only on minimal envs.
-    ndi = None
+_NDI = None
+_NDI_CHECKED = False
+
+
+def _get_ndi():
+    global _NDI, _NDI_CHECKED
+    if _NDI_CHECKED:
+        return _NDI
+    _NDI_CHECKED = True
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from scipy import ndimage as ndi
+        _NDI = ndi
+    except Exception:
+        _NDI = None
+    return _NDI
+
+
+def _binary_erosion_numpy(mask: np.ndarray) -> np.ndarray:
+    padded = np.pad(mask.astype(bool), 1, mode="constant", constant_values=False)
+    eroded = np.ones_like(mask, dtype=bool)
+    for axis in range(mask.ndim):
+        lower = [slice(1, dim + 1) for dim in mask.shape]
+        upper = [slice(1, dim + 1) for dim in mask.shape]
+        lower[axis] = slice(0, mask.shape[axis])
+        upper[axis] = slice(2, mask.shape[axis] + 2)
+        eroded &= padded[tuple(lower)]
+        eroded &= padded[tuple(upper)]
+    return eroded & mask
 
 
 def _surface(mask: np.ndarray) -> np.ndarray:
     mask = mask.astype(bool)
     if not mask.any():
         return mask
+    ndi = _get_ndi()
     if ndi is None:
-        padded = np.pad(mask, 1, mode="constant", constant_values=False)
-        surface = mask.copy()
-        for axis in range(mask.ndim):
-            surface &= padded.take(indices=range(1, mask.shape[axis] + 1), axis=axis)
-        return mask ^ surface
+        return mask ^ _binary_erosion_numpy(mask)
     structure = ndi.generate_binary_structure(mask.ndim, 1)
     eroded = ndi.binary_erosion(mask, structure=structure, border_value=0)
     return mask ^ eroded
@@ -50,6 +74,7 @@ def _hd95(pred: np.ndarray, target: np.ndarray, spacing: Iterable[float] | None 
     if not pred_surface.any() or not target_surface.any():
         return 0.0 if np.array_equal(pred, target) else _diagonal(pred.shape, spacing)
 
+    ndi = _get_ndi()
     if ndi is not None:
         spacing_tuple = tuple(float(s) for s in (spacing or [1.0] * pred.ndim))
         pred_dt = ndi.distance_transform_edt(~pred_surface, sampling=spacing_tuple)
@@ -136,4 +161,3 @@ def write_summary(path: str | Path, summary: Dict[str, float]) -> None:
             "mean_accuracy",
         ]:
             handle.write(f"{key}: {summary[key]:.6f}\n")
-
