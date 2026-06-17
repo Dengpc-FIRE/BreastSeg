@@ -18,7 +18,7 @@ train:
   lr: 0.0001
   weight_decay: 0.00001
   num_workers: 4
-  early_stopping: 40
+  early_stopping: 0
   scheduler: reduce_on_plateau
   amp: true
   seed: 2026

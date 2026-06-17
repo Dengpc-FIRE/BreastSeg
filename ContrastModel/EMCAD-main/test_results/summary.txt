@@ -1,0 +1,6 @@
+mean_dice: 0.703480
+mean_iou: 0.573454
+mean_hd95: 19.233820
+mean_sensitivity: 0.697891
+mean_precision: 0.758898
+mean_accuracy: 0.998203
