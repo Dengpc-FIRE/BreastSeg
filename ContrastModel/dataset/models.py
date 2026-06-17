@@ -259,13 +259,24 @@ def _build_msdahnet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 def _build_attention_gated(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
     with prepend_sys_path(model_dir):
+        network = cfg["model"].get("network", "unet_nonlocal")
+        common_kwargs = {
+            "n_classes": cfg["model"]["out_channels"],
+            "in_channels": cfg["model"]["input_channels"],
+            "feature_scale": int(cfg["model"].get("feature_scale", 4)),
+            "is_batchnorm": True,
+        }
+        if network == "unet_nonlocal":
+            module = importlib.import_module("models.networks.unet_nonlocal_2D")
+            return module.unet_nonlocal_2D(is_deconv=True, **common_kwargs)
+        if network == "unet":
+            module = importlib.import_module("models.networks.unet_2D")
+            return module.unet_2D(is_deconv=True, **common_kwargs)
         module = importlib.import_module("models.networks")
         return module.get_network(
-            cfg["model"].get("network", "sononet_grid_attention"),
-            n_classes=cfg["model"]["out_channels"],
-            in_channels=cfg["model"]["input_channels"],
-            feature_scale=int(cfg["model"].get("feature_scale", 4)),
+            network,
             tensor_dim="2D",
+            **common_kwargs,
         )
 
 
