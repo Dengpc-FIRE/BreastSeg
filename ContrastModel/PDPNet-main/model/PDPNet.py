@@ -224,7 +224,7 @@ class PDPNet(nn.Module):
             else:
                 cdice = cdice + self.dice_loss(L, label)
         
-        with torch.no_grad():
+        if True:
             xs = torch.zeros_like(x)
             ls = torch.zeros_like(pres[-1])
             ys = torch.zeros_like(y)
