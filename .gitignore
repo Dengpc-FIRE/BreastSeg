@@ -52,3 +52,19 @@ log/*
 .DS_Store
 Thumbs.db
 *.model
+
+# Local Codex/Synapse download state and logs
+.codex*
+
+# Contains a local Synapse token; keep it out of git.
+# download_mama_mia.py
+
+# MAMA-MIA Synapse dataset downloaded locally
+/images/
+/segmentations/
+/patient_info_files/
+/nnUNet_pretrained_weights/
+/clinical_and_imaging_info.xlsx
+/preliminary_automatic_segmentations_quality_scores.csv
+/train_test_splits.csv
+/manifest.csv
