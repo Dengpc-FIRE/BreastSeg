@@ -53,6 +53,11 @@ def main():
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument(
+        "--allow_ablation",
+        action="store_true",
+        help="Allow visualization for ablation configs such as preonly. Keep disabled for scheme D-full checks.",
+    )
+    parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
     )
@@ -63,7 +68,8 @@ def main():
 
     config_path = resolve_config_path(args.config)
     config = load_config(config_path)
-    validate_full_config(config)
+    if not args.allow_ablation:
+        validate_full_config(config)
     train_cfg = config.get("train", {})
 
     split_path = Path(args.split_path or train_cfg.get("test_path", ""))
