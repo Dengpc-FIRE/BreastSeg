@@ -3,11 +3,19 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Jupyter笔记本检查点
-.ipynb_checkpoints/
+
 /results_kpta_25d_net_k5/test_visualization/visualizations/
 /results_kpta_25d_net_k5/test_visualization/probabilities/
 results_kpta_25d_net_k5/test_visualization/visualizations/
+/results_kpta_25d_net_k5/test_visualization/
+results_kpta_25d_net/test_visualization/masks/
+/results_kpta_25d_net/test_visualization/masks/
+results_kpta_25d_net/test_visualization/visualizations/
+results_kpta_25d_net/test_visualization/visualizations/
+
+# Jupyter笔记本检查点
+.ipynb_checkpoints/
+
 # 数据集和中间文件
 cropped_dataset/
 input_images/
