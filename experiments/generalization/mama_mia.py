@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 from PIL import Image
@@ -19,6 +19,12 @@ class MamaMiaCase:
     image_dir: Path
     phase_paths: Tuple[Path, ...]
     mask_path: Path
+
+
+@dataclass(frozen=True)
+class NiftiVolume:
+    image: Any
+    data: np.ndarray
 
 
 def normalize_cohort(value: str) -> str:
@@ -110,15 +116,41 @@ def discover_cases(
     return cases
 
 
-def _load_nifti(path: Path) -> np.ndarray:
+def _load_nifti_module():
     try:
         import nibabel as nib
     except Exception as exc:  # pragma: no cover - environment dependent
         raise RuntimeError("Please install nibabel: pip install nibabel") from exc
-    data = np.asarray(nib.load(str(path)).get_fdata(dtype=np.float32), dtype=np.float32)
+    return nib
+
+
+def _to_depth_first(data: np.ndarray) -> np.ndarray:
     if data.ndim != 3:
-        raise ValueError(f"Expected 3D NIfTI, got {data.shape} for {path}")
+        raise ValueError(f"Expected 3D NIfTI, got {data.shape}")
     return np.transpose(data, (2, 0, 1))
+
+
+def _get_nifti_data(image: Any) -> np.ndarray:
+    data = np.asarray(image.get_fdata(dtype=np.float32), dtype=np.float32)
+    return _to_depth_first(data)
+
+
+def _needs_resample(image: Any, reference: Any) -> bool:
+    return image.shape[:3] != reference.shape[:3] or not np.allclose(image.affine, reference.affine, atol=1e-4)
+
+
+def _load_nifti(path: Path, reference: Any = None, nearest: bool = False) -> NiftiVolume:
+    nib = _load_nifti_module()
+    image = nib.load(str(path))
+    if len(image.shape) != 3:
+        raise ValueError(f"Expected 3D NIfTI, got {image.shape} for {path}")
+    if reference is not None and _needs_resample(image, reference):
+        try:
+            from nibabel.processing import resample_from_to
+        except Exception as exc:  # pragma: no cover - environment dependent
+            raise RuntimeError("Please install nibabel with processing support to resample NIfTI masks.") from exc
+        image = resample_from_to(image, reference, order=0 if nearest else 1)
+    return NiftiVolume(image=image, data=_get_nifti_data(image))
 
 
 def resize_volume(volume: np.ndarray, size: Tuple[int, int], nearest: bool = False) -> np.ndarray:
@@ -131,6 +163,51 @@ def resize_volume(volume: np.ndarray, size: Tuple[int, int], nearest: bool = Fal
         image = image.resize((int(size[1]), int(size[0])), resample)
         out.append(np.asarray(image, dtype=np.float32))
     return np.stack(out, axis=0)
+
+
+def _robust_window(values: np.ndarray, lower: float = 1.0, upper: float = 99.5) -> Tuple[float, float]:
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return 0.0, 1.0
+    nonzero = values[np.abs(values) > 1e-6]
+    stats = nonzero if nonzero.size >= 1024 else values
+    lo, hi = np.percentile(stats, [lower, upper]).astype(np.float32)
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        lo, hi = float(np.min(stats)), float(np.max(stats))
+    if hi <= lo:
+        hi = lo + 1.0
+    return float(lo), float(hi)
+
+
+def _window_to_uint8_like(volume: np.ndarray, lo: float, hi: float) -> np.ndarray:
+    volume = np.nan_to_num(volume.astype(np.float32, copy=False), nan=lo, posinf=hi, neginf=lo)
+    scaled = (np.clip(volume, lo, hi) - lo) / (hi - lo + 1e-6)
+    return (scaled * 255.0).astype(np.float32)
+
+
+def _sample_window_values(phase_volumes: Sequence[np.ndarray], max_values: int = 2_000_000) -> np.ndarray:
+    total = sum(int(v.size) for v in phase_volumes)
+    stride = max(1, total // max_values)
+    samples = [v.reshape(-1)[::stride] for v in phase_volumes]
+    return np.concatenate(samples)
+
+
+def scale_phase_volumes(phase_volumes: Sequence[np.ndarray], mode: str) -> List[np.ndarray]:
+    """Map MAMA-MIA source phases into the intensity domain used by BreastDM PNG inputs."""
+    mode = mode.lower()
+    if mode == "none":
+        return [np.nan_to_num(v.astype(np.float32, copy=False), nan=0.0, posinf=0.0, neginf=0.0) for v in phase_volumes]
+    if mode == "breastdm_uint8":
+        all_values = _sample_window_values(phase_volumes)
+        lo, hi = _robust_window(all_values)
+        return [_window_to_uint8_like(v, lo, hi) for v in phase_volumes]
+    if mode == "per_phase_uint8":
+        scaled = []
+        for volume in phase_volumes:
+            lo, hi = _robust_window(volume.reshape(-1))
+            scaled.append(_window_to_uint8_like(volume, lo, hi))
+        return scaled
+    raise ValueError("source_scale must be one of: none, breastdm_uint8, per_phase_uint8")
 
 
 def _normalize_channels(volume: np.ndarray, mode: str) -> np.ndarray:
@@ -152,6 +229,19 @@ def _normalize_channels(volume: np.ndarray, mode: str) -> np.ndarray:
             stats = nonzero if nonzero.size else valid
             out[channel] = (values - float(stats.mean())) / (float(stats.std()) + 1e-6)
     return out
+
+
+def build_subtraction_maps(pre: np.ndarray, posts: Sequence[np.ndarray], mode: str) -> List[np.ndarray]:
+    mode = mode.lower()
+    if mode not in {"positive", "signed"}:
+        raise ValueError("subtraction_mode must be one of: positive, signed")
+    subs = []
+    for post in posts:
+        sub = (post - pre).astype(np.float32)
+        if mode == "positive":
+            sub = np.clip(sub, 0.0, 255.0)
+        subs.append(sub)
+    return subs
 
 
 def resample_posts_to_8(posts: Sequence[np.ndarray]) -> List[np.ndarray]:
@@ -189,17 +279,35 @@ def load_case_17ch(
     case: MamaMiaCase,
     image_size: Tuple[int, int],
     normalize: str = "zscore",
+    source_scale: str = "breastdm_uint8",
+    subtraction_mode: str = "positive",
 ) -> Tuple[np.ndarray, np.ndarray]:
-    phase_volumes = [resize_volume(_load_nifti(path), image_size, nearest=False) for path in case.phase_paths]
+    reference = _load_nifti(case.phase_paths[0])
+    phase_volumes = [resize_volume(reference.data, image_size, nearest=False)]
+    for path in case.phase_paths[1:]:
+        phase = _load_nifti(path, reference=reference.image, nearest=False)
+        phase_volumes.append(resize_volume(phase.data, image_size, nearest=False))
+    phase_volumes = scale_phase_volumes(phase_volumes, source_scale)
     pre = phase_volumes[0]
     posts = resample_posts_to_8(phase_volumes[1:])
-    subs = [post - pre for post in posts]
+    subs = build_subtraction_maps(pre, posts, subtraction_mode)
     image = np.stack([pre, *posts, *subs], axis=0).astype(np.float32)
     image = _normalize_channels(image, normalize)
 
-    mask = resize_volume(_load_nifti(case.mask_path), image_size, nearest=True)
+    mask_volume = _load_nifti(case.mask_path, reference=reference.image, nearest=True)
+    mask = resize_volume(mask_volume.data, image_size, nearest=True)
     mask = (mask > 0).astype(np.float32)
     return image, mask
+
+
+def describe_case_input(image: np.ndarray, mask: np.ndarray) -> str:
+    channel_stats = []
+    for idx in range(image.shape[0]):
+        channel = image[idx]
+        channel_stats.append(
+            f"c{idx}:min={float(channel.min()):.3g},max={float(channel.max()):.3g},mean={float(channel.mean()):.3g}"
+        )
+    return f"shape={tuple(image.shape)}, mask_fraction={float(mask.mean()):.6f}, " + "; ".join(channel_stats)
 
 
 def adapt_channel_count(image_17ch: np.ndarray, target_channels: int) -> np.ndarray:

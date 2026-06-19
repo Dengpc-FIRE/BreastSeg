@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -20,7 +21,7 @@ from ContrastModel.dataset.config import load_config, select_device  # noqa: E40
 from ContrastModel.dataset.metrics import METRIC_KEYS, compute_case_metrics, summarize_metrics, write_summary  # noqa: E402
 from ContrastModel.dataset.models import align_logits, build_model, forward_model  # noqa: E402
 from ContrastModel.dataset.training import sliding_window_predict_3d  # noqa: E402
-from experiments.generalization.mama_mia import adapt_channel_count, discover_cases, load_case_17ch, selected_cohorts  # noqa: E402
+from experiments.generalization.mama_mia import adapt_channel_count, describe_case_input, discover_cases, load_case_17ch, selected_cohorts  # noqa: E402
 
 
 MODEL_DIRS = {
@@ -53,21 +54,44 @@ def parse_args(default_model_key: str | None = None, default_model_dir: str | No
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--threshold", type=float, default=None)
     parser.add_argument("--limit-cases", type=int, default=None)
+    parser.add_argument("--source-scale", default="breastdm_uint8", choices=["none", "breastdm_uint8", "per_phase_uint8"])
+    parser.add_argument("--subtraction-mode", default="positive", choices=["positive", "signed"])
+    parser.add_argument("--strict-load", action="store_true")
+    parser.add_argument("--diagnose-cases", type=int, default=0)
+    parser.add_argument("--amp", dest="amp", action="store_true", default=True)
+    parser.add_argument("--no-amp", dest="amp", action="store_false")
     return parser.parse_args()
 
 
-def load_checkpoint(model, checkpoint: Path, device):
+def load_checkpoint(model, checkpoint: Path, device, strict: bool = False):
     state = torch.load(checkpoint, map_location=device)
-    model.load_state_dict(state.get("model_state", state), strict=False)
+    state_dict = state.get("model_state", state)
+    result = model.load_state_dict(state_dict, strict=strict)
+    missing = list(getattr(result, "missing_keys", []))
+    unexpected = list(getattr(result, "unexpected_keys", []))
+    if missing or unexpected:
+        print(
+            f"[checkpoint] loaded with missing_keys={len(missing)}, unexpected_keys={len(unexpected)} "
+            f"from {checkpoint}"
+        )
+        if missing:
+            print("[checkpoint] first missing keys:", ", ".join(missing[:20]))
+        if unexpected:
+            print("[checkpoint] first unexpected keys:", ", ".join(unexpected[:20]))
+    else:
+        print(f"[checkpoint] all keys matched: {checkpoint}")
 
 
-def predict_2d_case(model, image: np.ndarray, device, threshold: float, batch_size: int) -> np.ndarray:
+def predict_2d_case(model, image: np.ndarray, device, threshold: float, batch_size: int, amp: bool) -> np.ndarray:
     model.eval()
     preds: List[np.ndarray] = []
+    use_amp = bool(amp and torch.device(device).type == "cuda")
     with torch.inference_mode():
         for start in range(0, image.shape[1], batch_size):
             batch = torch.from_numpy(image[:, start : start + batch_size]).permute(1, 0, 2, 3).to(device=device, dtype=torch.float32)
-            logits, _ = forward_model(model, batch, None)
+            autocast_ctx = torch.autocast(device_type="cuda") if use_amp else nullcontext()
+            with autocast_ctx:
+                logits, _ = forward_model(model, batch, None)
             target_shape = torch.zeros((batch.shape[0], 1, batch.shape[2], batch.shape[3]), device=device)
             logits = align_logits(logits, target_shape)
             pred = (torch.sigmoid(logits)[:, 0].detach().cpu().numpy() >= threshold)
@@ -75,9 +99,12 @@ def predict_2d_case(model, image: np.ndarray, device, threshold: float, batch_si
     return np.stack(preds, axis=0)
 
 
-def predict_3d_case(model, cfg: Dict[str, Any], image: np.ndarray, device, threshold: float) -> np.ndarray:
+def predict_3d_case(model, cfg: Dict[str, Any], image: np.ndarray, device, threshold: float, amp: bool) -> np.ndarray:
     tensor = torch.from_numpy(image[None]).to(device=device, dtype=torch.float32)
-    logits = sliding_window_predict_3d(model, tensor, cfg, device)
+    use_amp = bool(amp and torch.device(device).type == "cuda")
+    autocast_ctx = torch.autocast(device_type="cuda") if use_amp else nullcontext()
+    with autocast_ctx:
+        logits = sliding_window_predict_3d(model, tensor, cfg, device)
     return (torch.sigmoid(logits)[0, 0].detach().cpu().numpy() >= threshold)
 
 
@@ -101,7 +128,7 @@ def run(args) -> Dict[str, float]:
     device = select_device(args.device)
     model = build_model(args.model_key, cfg, model_dir).to(device)
     checkpoint = Path(args.checkpoint or (Path(cfg["output"]["checkpoint_dir"]) / "best_model.pth")).resolve()
-    load_checkpoint(model, checkpoint, device)
+    load_checkpoint(model, checkpoint, device, strict=args.strict_load)
 
     cohorts = selected_cohorts(args.cohorts)
     cases = discover_cases(args.mama_root, cohorts, mask_source=args.mask_source)
@@ -118,13 +145,21 @@ def run(args) -> Dict[str, float]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rows = []
-    for case in tqdm(cases, desc=f"{args.model_key} MAMA-MIA"):
-        image, mask = load_case_17ch(case, image_size, normalize=normalize)
+    for idx, case in enumerate(tqdm(cases, desc=f"{args.model_key} MAMA-MIA")):
+        image, mask = load_case_17ch(
+            case,
+            image_size,
+            normalize=normalize,
+            source_scale=args.source_scale,
+            subtraction_mode=args.subtraction_mode,
+        )
+        if args.diagnose_cases and idx < args.diagnose_cases:
+            print(f"[diagnose] {case.case_id}: {describe_case_input(image, mask)}")
         image = adapt_channel_count(image, input_channels)
         if mode == "3d":
-            pred = predict_3d_case(model, cfg, image, device, threshold)
+            pred = predict_3d_case(model, cfg, image, device, threshold, args.amp)
         else:
-            pred = predict_2d_case(model, image, device, threshold, args.batch_size)
+            pred = predict_2d_case(model, image, device, threshold, args.batch_size, args.amp)
         metric = compute_case_metrics(pred, mask.astype(bool))
         metric.update({"id": case.case_id, "cohort": case.cohort})
         rows.append(metric)

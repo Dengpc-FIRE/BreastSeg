@@ -32,6 +32,11 @@ def parse_args():
     parser.add_argument("--kpta-checkpoint", default=None)
     parser.add_argument("--kpta-config", default="configs/kpta_25d_net.yaml")
     parser.add_argument("--device", default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--source-scale", default="breastdm_uint8", choices=["none", "breastdm_uint8", "per_phase_uint8"])
+    parser.add_argument("--subtraction-mode", default="positive", choices=["positive", "signed"])
+    parser.add_argument("--diagnose-cases", type=int, default=0)
+    parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Only print commands.")
     parser.add_argument("--include-nnunet", action="store_true", help="Also print/run nnU-Net wrapper; it requires a separate adapter.")
     return parser.parse_args()
@@ -51,6 +56,13 @@ def command_for_contrast(model_key: str, model_dir_name: str, args) -> list[str]
     ]
     if args.device:
         cmd.extend(["--device", args.device])
+    if args.batch_size:
+        cmd.extend(["--batch-size", str(args.batch_size)])
+    cmd.extend(["--source-scale", args.source_scale, "--subtraction-mode", args.subtraction_mode])
+    if args.diagnose_cases:
+        cmd.extend(["--diagnose-cases", str(args.diagnose_cases)])
+    if args.no_amp:
+        cmd.append("--no-amp")
     return cmd
 
 
@@ -71,6 +83,13 @@ def command_for_kpta(args) -> list[str] | None:
     ]
     if args.device:
         cmd.extend(["--device", args.device])
+    if args.batch_size:
+        cmd.extend(["--batch-size", str(args.batch_size)])
+    cmd.extend(["--source-scale", args.source_scale, "--subtraction-mode", args.subtraction_mode])
+    if args.diagnose_cases:
+        cmd.extend(["--diagnose-cases", str(args.diagnose_cases)])
+    if args.no_amp:
+        cmd.append("--no-amp")
     return cmd
 
 
