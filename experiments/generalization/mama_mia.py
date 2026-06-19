@@ -124,22 +124,25 @@ def _load_nifti_module():
     return nib
 
 
-def _to_depth_first(data: np.ndarray) -> np.ndarray:
+def _to_depth_first(data: np.ndarray, depth_axis: int = 2) -> np.ndarray:
     if data.ndim != 3:
         raise ValueError(f"Expected 3D NIfTI, got {data.shape}")
-    return np.transpose(data, (2, 0, 1))
+    if depth_axis not in {0, 1, 2}:
+        raise ValueError("depth_axis must be 0, 1, or 2")
+    axes = [depth_axis, *[axis for axis in range(3) if axis != depth_axis]]
+    return np.transpose(data, axes)
 
 
-def _get_nifti_data(image: Any) -> np.ndarray:
+def _get_nifti_data(image: Any, depth_axis: int = 2) -> np.ndarray:
     data = np.asarray(image.get_fdata(dtype=np.float32), dtype=np.float32)
-    return _to_depth_first(data)
+    return _to_depth_first(data, depth_axis=depth_axis)
 
 
 def _needs_resample(image: Any, reference: Any) -> bool:
     return image.shape[:3] != reference.shape[:3] or not np.allclose(image.affine, reference.affine, atol=1e-4)
 
 
-def _load_nifti(path: Path, reference: Any = None, nearest: bool = False) -> NiftiVolume:
+def _load_nifti(path: Path, reference: Any = None, nearest: bool = False, depth_axis: int = 2) -> NiftiVolume:
     nib = _load_nifti_module()
     image = nib.load(str(path))
     if len(image.shape) != 3:
@@ -150,7 +153,7 @@ def _load_nifti(path: Path, reference: Any = None, nearest: bool = False) -> Nif
         except Exception as exc:  # pragma: no cover - environment dependent
             raise RuntimeError("Please install nibabel with processing support to resample NIfTI masks.") from exc
         image = resample_from_to(image, reference, order=0 if nearest else 1)
-    return NiftiVolume(image=image, data=_get_nifti_data(image))
+    return NiftiVolume(image=image, data=_get_nifti_data(image, depth_axis=depth_axis))
 
 
 def resize_volume(volume: np.ndarray, size: Tuple[int, int], nearest: bool = False) -> np.ndarray:
@@ -231,10 +234,23 @@ def _normalize_channels(volume: np.ndarray, mode: str) -> np.ndarray:
     return out
 
 
-def build_subtraction_maps(pre: np.ndarray, posts: Sequence[np.ndarray], mode: str) -> List[np.ndarray]:
+def build_subtraction_maps(
+    pre: np.ndarray,
+    posts: Sequence[np.ndarray],
+    mode: str,
+    raw_pre: Optional[np.ndarray] = None,
+    raw_posts: Optional[Sequence[np.ndarray]] = None,
+) -> List[np.ndarray]:
     mode = mode.lower()
-    if mode not in {"positive", "signed"}:
-        raise ValueError("subtraction_mode must be one of: positive, signed")
+    if mode not in {"positive", "signed", "raw_positive_uint8"}:
+        raise ValueError("subtraction_mode must be one of: positive, signed, raw_positive_uint8")
+    if mode == "raw_positive_uint8":
+        if raw_pre is None or raw_posts is None:
+            raise ValueError("raw_positive_uint8 requires raw pre/post volumes.")
+        raw_diffs = [np.clip((post - raw_pre).astype(np.float32), 0.0, None) for post in raw_posts]
+        all_values = _sample_window_values(raw_diffs)
+        lo, hi = _robust_window(all_values)
+        return [_window_to_uint8_like(diff, lo, hi) for diff in raw_diffs]
     subs = []
     for post in posts:
         sub = (post - pre).astype(np.float32)
@@ -281,20 +297,23 @@ def load_case_17ch(
     normalize: str = "zscore",
     source_scale: str = "breastdm_uint8",
     subtraction_mode: str = "positive",
+    depth_axis: int = 2,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    reference = _load_nifti(case.phase_paths[0])
-    phase_volumes = [resize_volume(reference.data, image_size, nearest=False)]
+    reference = _load_nifti(case.phase_paths[0], depth_axis=depth_axis)
+    raw_phase_volumes = [resize_volume(reference.data, image_size, nearest=False)]
     for path in case.phase_paths[1:]:
-        phase = _load_nifti(path, reference=reference.image, nearest=False)
-        phase_volumes.append(resize_volume(phase.data, image_size, nearest=False))
-    phase_volumes = scale_phase_volumes(phase_volumes, source_scale)
+        phase = _load_nifti(path, reference=reference.image, nearest=False, depth_axis=depth_axis)
+        raw_phase_volumes.append(resize_volume(phase.data, image_size, nearest=False))
+    raw_pre = raw_phase_volumes[0]
+    raw_posts = resample_posts_to_8(raw_phase_volumes[1:])
+    phase_volumes = scale_phase_volumes(raw_phase_volumes, source_scale)
     pre = phase_volumes[0]
     posts = resample_posts_to_8(phase_volumes[1:])
-    subs = build_subtraction_maps(pre, posts, subtraction_mode)
+    subs = build_subtraction_maps(pre, posts, subtraction_mode, raw_pre=raw_pre, raw_posts=raw_posts)
     image = np.stack([pre, *posts, *subs], axis=0).astype(np.float32)
     image = _normalize_channels(image, normalize)
 
-    mask_volume = _load_nifti(case.mask_path, reference=reference.image, nearest=True)
+    mask_volume = _load_nifti(case.mask_path, reference=reference.image, nearest=True, depth_axis=depth_axis)
     mask = resize_volume(mask_volume.data, image_size, nearest=True)
     mask = (mask > 0).astype(np.float32)
     return image, mask

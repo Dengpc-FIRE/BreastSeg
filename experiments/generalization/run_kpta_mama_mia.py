@@ -20,7 +20,16 @@ from experiments.generalization.mama_mia import adapt_channel_count, describe_ca
 from train.losses import unpack_model_output  # noqa: E402
 from train.train_config import build_model_from_config, load_config, resolve_config_path  # noqa: E402
 
-EXTRA_METRIC_KEYS = ["threshold", "pred_voxels", "target_voxels", "pred_fraction", "target_fraction"]
+EXTRA_METRIC_KEYS = [
+    "case_id",
+    "slice_index",
+    "metric_mode",
+    "threshold",
+    "pred_voxels",
+    "target_voxels",
+    "pred_fraction",
+    "target_fraction",
+]
 
 
 def parse_args():
@@ -36,7 +45,11 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--limit-cases", type=int, default=None)
     parser.add_argument("--source-scale", default="breastdm_uint8", choices=["none", "breastdm_uint8", "per_phase_uint8"])
-    parser.add_argument("--subtraction-mode", default="positive", choices=["positive", "signed"])
+    parser.add_argument("--subtraction-mode", default="positive", choices=["positive", "signed", "raw_positive_uint8"])
+    parser.add_argument("--depth-axis", type=int, default=2, choices=[0, 1, 2])
+    parser.add_argument("--eval-slices", default="all", choices=["all", "gt_positive", "gt_bbox"])
+    parser.add_argument("--eval-slice-margin", type=int, default=2)
+    parser.add_argument("--metric-mode", default="slice", choices=["slice", "volume"])
     parser.add_argument("--strict-load", action="store_true")
     parser.add_argument("--diagnose-cases", type=int, default=0)
     parser.add_argument("--threshold-sweep", nargs="+", type=float, default=None)
@@ -169,6 +182,22 @@ def postprocess_prediction(pred: np.ndarray, mode: str, min_component_voxels: in
     return out
 
 
+def select_eval_slices(target: np.ndarray, mode: str, margin: int = 2) -> np.ndarray:
+    target = np.asarray(target).astype(bool)
+    if mode == "all":
+        return np.arange(target.shape[0])
+    positive = np.flatnonzero(target.reshape(target.shape[0], -1).any(axis=1))
+    if positive.size == 0:
+        return np.arange(target.shape[0])
+    if mode == "gt_positive":
+        return positive
+    if mode == "gt_bbox":
+        start = max(0, int(positive[0]) - int(margin))
+        end = min(target.shape[0], int(positive[-1]) + int(margin) + 1)
+        return np.arange(start, end)
+    raise ValueError(f"Unknown eval-slices mode: {mode}")
+
+
 def _rows_for_threshold(rows: list[dict], threshold: float) -> list[dict]:
     return [row for row in rows if abs(float(row["threshold"]) - float(threshold)) < 1e-9]
 
@@ -189,6 +218,53 @@ def _write_threshold_summary(output_dir: Path, rows: list[dict], thresholds: lis
     best_threshold, best_summary = max(threshold_summaries, key=lambda item: item[1]["mean_dice"])
     write_summary(output_dir / "summary_best_threshold.txt", best_summary)
     return best_threshold, best_summary
+
+
+def evaluate_prediction(
+    pred_full: np.ndarray,
+    target: np.ndarray,
+    eval_indices: np.ndarray,
+    threshold: float,
+    case_id: str,
+    cohort: str,
+    metric_mode: str,
+) -> list[dict]:
+    if metric_mode == "volume":
+        pred = pred_full[eval_indices]
+        target_eval = target[eval_indices]
+        metric = compute_case_metrics(pred, target_eval)
+        _add_volume_stats(metric, pred, target_eval, threshold)
+        metric.update(
+            {
+                "id": case_id,
+                "case_id": case_id,
+                "slice_index": "",
+                "cohort": cohort,
+                "metric_mode": metric_mode,
+            }
+        )
+        return [metric]
+    if metric_mode != "slice":
+        raise ValueError(f"Unknown metric mode: {metric_mode}")
+
+    rows = []
+    for slice_index in eval_indices:
+        z = int(slice_index)
+        pred = pred_full[z]
+        target_slice = target[z]
+        metric = compute_case_metrics(pred, target_slice)
+        _add_volume_stats(metric, pred, target_slice, threshold)
+        metric.update(
+            {
+                "id": f"{case_id}_z{z:04d}",
+                "case_id": case_id,
+                "slice_index": z,
+                "cohort": cohort,
+                "metric_mode": metric_mode,
+            }
+        )
+        rows.append(metric)
+    return rows
 
 
 def run(args):
@@ -226,28 +302,44 @@ def run(args):
             normalize="none",
             source_scale=args.source_scale,
             subtraction_mode=args.subtraction_mode,
+            depth_axis=args.depth_axis,
         )
         if args.diagnose_cases and idx < args.diagnose_cases:
             print(f"[diagnose] {case.case_id}: {describe_case_input(image, mask)}")
         image = adapt_channel_count(image, input_phases)
         prob = predict_kpta_25d_probs(model, image, num_slices, device, args.batch_size, args.amp)
         target = mask.astype(bool)
+        eval_indices = select_eval_slices(target, args.eval_slices, margin=args.eval_slice_margin)
+        if args.diagnose_cases and idx < args.diagnose_cases and args.eval_slices != "all":
+            print(
+                f"[diagnose] {case.case_id} eval_slices={args.eval_slices}: "
+                f"{len(eval_indices)}/{target.shape[0]} slices"
+            )
         for threshold in thresholds:
-            pred = postprocess_prediction(
+            pred_full = postprocess_prediction(
                 prob >= float(threshold),
                 mode=args.postprocess,
                 min_component_voxels=args.min_component_voxels,
             )
-            metric = compute_case_metrics(pred, target)
-            _add_volume_stats(metric, pred, target, float(threshold))
-            metric.update({"id": case.case_id, "cohort": case.cohort})
-            rows.append(metric)
+            metric_rows = evaluate_prediction(
+                pred_full,
+                target,
+                eval_indices,
+                float(threshold),
+                case.case_id,
+                case.cohort,
+                args.metric_mode,
+            )
+            rows.extend(metric_rows)
             if args.diagnose_cases and idx < args.diagnose_cases:
+                metric = summarize_metrics(metric_rows)
+                pred_fraction = float(np.mean([row["pred_fraction"] for row in metric_rows]))
+                target_fraction = float(np.mean([row["target_fraction"] for row in metric_rows]))
                 print(
                     f"[diagnose] {case.case_id} threshold={float(threshold):.3f}: "
-                    f"dice={metric['dice']:.6f}, precision={metric['precision']:.6f}, "
-                    f"sensitivity={metric['sensitivity']:.6f}, pred_fraction={metric['pred_fraction']:.6f}, "
-                    f"target_fraction={metric['target_fraction']:.6f}"
+                    f"dice={metric['mean_dice']:.6f}, precision={metric['mean_precision']:.6f}, "
+                    f"sensitivity={metric['mean_sensitivity']:.6f}, pred_fraction={pred_fraction:.6f}, "
+                    f"target_fraction={target_fraction:.6f}, metric_mode={args.metric_mode}"
                 )
 
     primary_rows = _rows_for_threshold(rows, float(args.threshold))

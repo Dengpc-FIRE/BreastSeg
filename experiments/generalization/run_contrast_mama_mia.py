@@ -57,7 +57,8 @@ def parse_args(default_model_key: str | None = None, default_model_dir: str | No
     parser.add_argument("--threshold", type=float, default=None)
     parser.add_argument("--limit-cases", type=int, default=None)
     parser.add_argument("--source-scale", default="breastdm_uint8", choices=["none", "breastdm_uint8", "per_phase_uint8"])
-    parser.add_argument("--subtraction-mode", default="positive", choices=["positive", "signed"])
+    parser.add_argument("--subtraction-mode", default="positive", choices=["positive", "signed", "raw_positive_uint8"])
+    parser.add_argument("--depth-axis", type=int, default=2, choices=[0, 1, 2])
     parser.add_argument("--strict-load", action="store_true")
     parser.add_argument("--diagnose-cases", type=int, default=0)
     parser.add_argument("--amp", dest="amp", action="store_true", default=True)
@@ -163,6 +164,7 @@ def run(args) -> Dict[str, float]:
             normalize=normalize,
             source_scale=args.source_scale,
             subtraction_mode=args.subtraction_mode,
+            depth_axis=args.depth_axis,
         )
         if args.diagnose_cases and idx < args.diagnose_cases:
             print(f"[diagnose] {case.case_id}: {describe_case_input(image, mask)}")
