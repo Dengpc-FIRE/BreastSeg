@@ -5,7 +5,9 @@ __pycache__/
 
 # Jupyter笔记本检查点
 .ipynb_checkpoints/
-
+/results_kpta_25d_net_k5/test_visualization/visualizations/
+/results_kpta_25d_net_k5/test_visualization/probabilities/
+results_kpta_25d_net_k5/test_visualization/visualizations/
 # 数据集和中间文件
 cropped_dataset/
 input_images/
@@ -23,7 +25,13 @@ ContrastModel/nnUNet-master/raw/
 *.pt
 *.h5
 *.ckpt
+patient_info_files/
+segmentations/
+images/
+# results_kpta_25d_net_k5/test_visualization/visualizations/
 
+results_kpta_25d_net_k1/
+results_kpta_25d_net_k5/
 # 训练结果目录
 # results_*/
 outputs/
