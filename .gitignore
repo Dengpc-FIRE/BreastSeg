@@ -69,3 +69,8 @@ Thumbs.db
 /preliminary_automatic_segmentations_quality_scores.csv
 /train_test_splits.csv
 /manifest.csv
+
+# Experiment outputs
+generalization_results/
+ContrastModel/*/generalization_results/
+model/generalization_results/
