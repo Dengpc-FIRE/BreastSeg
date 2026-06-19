@@ -23,6 +23,8 @@ from ContrastModel.dataset.models import align_logits, build_model, forward_mode
 from ContrastModel.dataset.training import sliding_window_predict_3d  # noqa: E402
 from experiments.generalization.mama_mia import adapt_channel_count, describe_case_input, discover_cases, load_case_17ch, selected_cohorts  # noqa: E402
 
+EXTRA_METRIC_KEYS = ["threshold", "pred_voxels", "target_voxels", "pred_fraction", "target_fraction"]
+
 
 MODEL_DIRS = {
     "attention_gated": "Attention-Gated-Networks-master",
@@ -108,6 +110,15 @@ def predict_3d_case(model, cfg: Dict[str, Any], image: np.ndarray, device, thres
     return (torch.sigmoid(logits)[0, 0].detach().cpu().numpy() >= threshold)
 
 
+def _add_volume_stats(metric: dict, pred: np.ndarray, target: np.ndarray, threshold: float) -> dict:
+    metric["threshold"] = float(threshold)
+    metric["pred_voxels"] = int(np.asarray(pred).astype(bool).sum())
+    metric["target_voxels"] = int(np.asarray(target).astype(bool).sum())
+    metric["pred_fraction"] = float(np.asarray(pred).astype(bool).mean())
+    metric["target_fraction"] = float(np.asarray(target).astype(bool).mean())
+    return metric
+
+
 def run(args) -> Dict[str, float]:
     if not args.model_key:
         raise ValueError("--model-key is required when no wrapper default is provided.")
@@ -160,9 +171,18 @@ def run(args) -> Dict[str, float]:
             pred = predict_3d_case(model, cfg, image, device, threshold, args.amp)
         else:
             pred = predict_2d_case(model, image, device, threshold, args.batch_size, args.amp)
-        metric = compute_case_metrics(pred, mask.astype(bool))
+        target = mask.astype(bool)
+        metric = compute_case_metrics(pred, target)
+        _add_volume_stats(metric, pred, target, threshold)
         metric.update({"id": case.case_id, "cohort": case.cohort})
         rows.append(metric)
+        if args.diagnose_cases and idx < args.diagnose_cases:
+            print(
+                f"[diagnose] {case.case_id} threshold={threshold:.3f}: "
+                f"dice={metric['dice']:.6f}, precision={metric['precision']:.6f}, "
+                f"sensitivity={metric['sensitivity']:.6f}, pred_fraction={metric['pred_fraction']:.6f}, "
+                f"target_fraction={metric['target_fraction']:.6f}"
+            )
 
     summary = summarize_metrics(rows)
     _write_metrics_with_cohort(output_dir / "metrics.csv", rows)
@@ -187,7 +207,7 @@ def run(args) -> Dict[str, float]:
 def _write_metrics_with_cohort(path: Path, rows: List[Dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["id", "cohort", *METRIC_KEYS])
+        writer = csv.DictWriter(handle, fieldnames=["id", "cohort", *METRIC_KEYS, *EXTRA_METRIC_KEYS])
         writer.writeheader()
         for row in rows:
             writer.writerow({key: row.get(key, "") for key in writer.fieldnames})

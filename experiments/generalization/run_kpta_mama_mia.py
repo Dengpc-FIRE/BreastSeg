@@ -20,6 +20,8 @@ from experiments.generalization.mama_mia import adapt_channel_count, describe_ca
 from train.losses import unpack_model_output  # noqa: E402
 from train.train_config import build_model_from_config, load_config, resolve_config_path  # noqa: E402
 
+EXTRA_METRIC_KEYS = ["threshold", "pred_voxels", "target_voxels", "pred_fraction", "target_fraction"]
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run MAMA-MIA cohort generalization for KPTA/KPTA-25D.")
@@ -37,6 +39,7 @@ def parse_args():
     parser.add_argument("--subtraction-mode", default="positive", choices=["positive", "signed"])
     parser.add_argument("--strict-load", action="store_true")
     parser.add_argument("--diagnose-cases", type=int, default=0)
+    parser.add_argument("--threshold-sweep", nargs="+", type=float, default=None)
     parser.add_argument("--amp", dest="amp", action="store_true", default=True)
     parser.add_argument("--no-amp", dest="amp", action="store_false")
     return parser.parse_args()
@@ -61,17 +64,16 @@ def load_checkpoint(model, checkpoint: Path, device, strict: bool = False):
         print(f"[checkpoint] all keys matched: {checkpoint}")
 
 
-def predict_kpta_25d_case(
+def predict_kpta_25d_probs(
     model,
     image: np.ndarray,
     num_slices: int,
     device,
-    threshold: float,
     batch_size: int,
     amp: bool,
 ) -> np.ndarray:
     model.eval()
-    preds: List[np.ndarray] = []
+    probs: List[np.ndarray] = []
     use_amp = bool(amp and torch.device(device).type == "cuda")
     with torch.inference_mode():
         batch = []
@@ -83,10 +85,19 @@ def predict_kpta_25d_case(
                 autocast_ctx = torch.autocast(device_type="cuda") if use_amp else nullcontext()
                 with autocast_ctx:
                     logits, _ = unpack_model_output(model(tensor))
-                pred = (torch.sigmoid(logits)[:, 0].detach().cpu().numpy() >= threshold)
-                preds.extend(pred)
+                prob = torch.sigmoid(logits)[:, 0].detach().cpu().numpy()
+                probs.extend(prob)
                 batch = []
-    return np.stack(preds, axis=0)
+    return np.stack(probs, axis=0)
+
+
+def _add_volume_stats(metric: dict, pred: np.ndarray, target: np.ndarray, threshold: float) -> dict:
+    metric["threshold"] = float(threshold)
+    metric["pred_voxels"] = int(np.asarray(pred).astype(bool).sum())
+    metric["target_voxels"] = int(np.asarray(target).astype(bool).sum())
+    metric["pred_fraction"] = float(np.asarray(pred).astype(bool).mean())
+    metric["target_fraction"] = float(np.asarray(target).astype(bool).mean())
+    return metric
 
 
 def run(args):
@@ -115,6 +126,7 @@ def run(args):
         raise FileNotFoundError(f"No MAMA-MIA cases found for cohorts={cohorts} under {args.mama_root}")
 
     rows = []
+    thresholds = args.threshold_sweep or [args.threshold]
     for idx, case in enumerate(tqdm(cases, desc="kpta_25d MAMA-MIA")):
         image, mask = load_case_17ch(
             case,
@@ -126,12 +138,24 @@ def run(args):
         if args.diagnose_cases and idx < args.diagnose_cases:
             print(f"[diagnose] {case.case_id}: {describe_case_input(image, mask)}")
         image = adapt_channel_count(image, input_phases)
-        pred = predict_kpta_25d_case(model, image, num_slices, device, args.threshold, args.batch_size, args.amp)
-        metric = compute_case_metrics(pred, mask.astype(bool))
-        metric.update({"id": case.case_id, "cohort": case.cohort})
-        rows.append(metric)
+        prob = predict_kpta_25d_probs(model, image, num_slices, device, args.batch_size, args.amp)
+        target = mask.astype(bool)
+        for threshold in thresholds:
+            pred = prob >= float(threshold)
+            metric = compute_case_metrics(pred, target)
+            _add_volume_stats(metric, pred, target, float(threshold))
+            metric.update({"id": case.case_id, "cohort": case.cohort})
+            rows.append(metric)
+            if args.diagnose_cases and idx < args.diagnose_cases:
+                print(
+                    f"[diagnose] {case.case_id} threshold={float(threshold):.3f}: "
+                    f"dice={metric['dice']:.6f}, precision={metric['precision']:.6f}, "
+                    f"sensitivity={metric['sensitivity']:.6f}, pred_fraction={metric['pred_fraction']:.6f}, "
+                    f"target_fraction={metric['target_fraction']:.6f}"
+                )
 
-    summary = summarize_metrics(rows)
+    primary_rows = [row for row in rows if abs(float(row["threshold"]) - float(args.threshold)) < 1e-9]
+    summary = summarize_metrics(primary_rows or rows)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_metrics_with_cohort(output_dir / "metrics.csv", rows)
@@ -141,9 +165,18 @@ def run(args):
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for cohort in cohorts:
-            cohort_rows = [row for row in rows if row["cohort"] == cohort]
+            cohort_rows = [row for row in primary_rows if row["cohort"] == cohort]
             if cohort_rows:
                 writer.writerow({"cohort": cohort, "n": len(cohort_rows), **summarize_metrics(cohort_rows)})
+    if len(thresholds) > 1:
+        with (output_dir / "summary_by_threshold.csv").open("w", newline="", encoding="utf-8") as handle:
+            fieldnames = ["threshold", "n", *summary.keys()]
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for threshold in thresholds:
+                threshold_rows = [row for row in rows if abs(float(row["threshold"]) - float(threshold)) < 1e-9]
+                if threshold_rows:
+                    writer.writerow({"threshold": float(threshold), "n": len(threshold_rows), **summarize_metrics(threshold_rows)})
     print(f"Saved metrics to {output_dir}")
     for key, value in summary.items():
         print(f"{key}: {value:.6f}")
@@ -152,7 +185,7 @@ def run(args):
 def _write_metrics_with_cohort(path: Path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["id", "cohort", *METRIC_KEYS])
+        writer = csv.DictWriter(handle, fieldnames=["id", "cohort", *METRIC_KEYS, *EXTRA_METRIC_KEYS])
         writer.writeheader()
         for row in rows:
             writer.writerow({key: row.get(key, "") for key in writer.fieldnames})
