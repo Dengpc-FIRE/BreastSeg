@@ -58,6 +58,7 @@ Thumbs.db
 
 # Contains a local Synapse token; keep it out of git.
 # download_mama_mia.py
+.mama_mia_download_state/
 
 # MAMA-MIA Synapse dataset downloaded locally
 /images/
