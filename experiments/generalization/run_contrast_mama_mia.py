@@ -56,8 +56,16 @@ def parse_args(default_model_key: str | None = None, default_model_dir: str | No
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--threshold", type=float, default=None)
     parser.add_argument("--limit-cases", type=int, default=None)
-    parser.add_argument("--source-scale", default="breastdm_uint8", choices=["none", "breastdm_uint8", "per_phase_uint8"])
-    parser.add_argument("--subtraction-mode", default="positive", choices=["positive", "signed", "raw_positive_uint8"])
+    parser.add_argument(
+        "--source-scale",
+        default="breastdm_uint8",
+        choices=["none", "breastdm_uint8", "per_phase_uint8", "per_slice_shared_uint8", "per_slice_phase_uint8"],
+    )
+    parser.add_argument(
+        "--subtraction-mode",
+        default="positive",
+        choices=["positive", "signed", "raw_positive_uint8", "raw_positive_per_phase_uint8", "raw_positive_per_slice_uint8"],
+    )
     parser.add_argument("--depth-axis", type=int, default=2, choices=[0, 1, 2])
     parser.add_argument("--strict-load", action="store_true")
     parser.add_argument("--diagnose-cases", type=int, default=0)

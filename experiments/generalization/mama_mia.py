@@ -188,6 +188,11 @@ def _window_to_uint8_like(volume: np.ndarray, lo: float, hi: float) -> np.ndarra
     return (scaled * 255.0).astype(np.float32)
 
 
+def _window_slice_to_uint8_like(plane: np.ndarray) -> np.ndarray:
+    lo, hi = _robust_window(plane.reshape(-1))
+    return _window_to_uint8_like(plane, lo, hi)
+
+
 def _sample_window_values(phase_volumes: Sequence[np.ndarray], max_values: int = 2_000_000) -> np.ndarray:
     total = sum(int(v.size) for v in phase_volumes)
     stride = max(1, total // max_values)
@@ -210,7 +215,24 @@ def scale_phase_volumes(phase_volumes: Sequence[np.ndarray], mode: str) -> List[
             lo, hi = _robust_window(volume.reshape(-1))
             scaled.append(_window_to_uint8_like(volume, lo, hi))
         return scaled
-    raise ValueError("source_scale must be one of: none, breastdm_uint8, per_phase_uint8")
+    if mode == "per_slice_shared_uint8":
+        out = [np.empty_like(v, dtype=np.float32) for v in phase_volumes]
+        depth = phase_volumes[0].shape[0]
+        for z in range(depth):
+            values = np.concatenate([v[z].reshape(-1) for v in phase_volumes])
+            lo, hi = _robust_window(values)
+            for idx, volume in enumerate(phase_volumes):
+                out[idx][z] = _window_to_uint8_like(volume[z], lo, hi)
+        return out
+    if mode == "per_slice_phase_uint8":
+        return [
+            np.stack([_window_slice_to_uint8_like(plane) for plane in volume], axis=0)
+            for volume in phase_volumes
+        ]
+    raise ValueError(
+        "source_scale must be one of: none, breastdm_uint8, per_phase_uint8, "
+        "per_slice_shared_uint8, per_slice_phase_uint8"
+    )
 
 
 def _normalize_channels(volume: np.ndarray, mode: str) -> np.ndarray:
@@ -242,12 +264,25 @@ def build_subtraction_maps(
     raw_posts: Optional[Sequence[np.ndarray]] = None,
 ) -> List[np.ndarray]:
     mode = mode.lower()
-    if mode not in {"positive", "signed", "raw_positive_uint8"}:
-        raise ValueError("subtraction_mode must be one of: positive, signed, raw_positive_uint8")
-    if mode == "raw_positive_uint8":
+    if mode not in {"positive", "signed", "raw_positive_uint8", "raw_positive_per_phase_uint8", "raw_positive_per_slice_uint8"}:
+        raise ValueError(
+            "subtraction_mode must be one of: positive, signed, raw_positive_uint8, "
+            "raw_positive_per_phase_uint8, raw_positive_per_slice_uint8"
+        )
+    if mode in {"raw_positive_uint8", "raw_positive_per_phase_uint8", "raw_positive_per_slice_uint8"}:
         if raw_pre is None or raw_posts is None:
-            raise ValueError("raw_positive_uint8 requires raw pre/post volumes.")
+            raise ValueError(f"{mode} requires raw pre/post volumes.")
         raw_diffs = [np.clip((post - raw_pre).astype(np.float32), 0.0, None) for post in raw_posts]
+        if mode == "raw_positive_per_phase_uint8":
+            return [
+                _window_to_uint8_like(diff, *_robust_window(diff.reshape(-1)))
+                for diff in raw_diffs
+            ]
+        if mode == "raw_positive_per_slice_uint8":
+            return [
+                np.stack([_window_slice_to_uint8_like(plane) for plane in diff], axis=0)
+                for diff in raw_diffs
+            ]
         all_values = _sample_window_values(raw_diffs)
         lo, hi = _robust_window(all_values)
         return [_window_to_uint8_like(diff, lo, hi) for diff in raw_diffs]
