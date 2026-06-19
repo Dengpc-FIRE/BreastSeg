@@ -40,6 +40,8 @@ def parse_args():
     parser.add_argument("--strict-load", action="store_true")
     parser.add_argument("--diagnose-cases", type=int, default=0)
     parser.add_argument("--threshold-sweep", nargs="+", type=float, default=None)
+    parser.add_argument("--postprocess", default="none", choices=["none", "largest_component"])
+    parser.add_argument("--min-component-voxels", type=int, default=0)
     parser.add_argument("--amp", dest="amp", action="store_true", default=True)
     parser.add_argument("--no-amp", dest="amp", action="store_false")
     return parser.parse_args()
@@ -100,6 +102,95 @@ def _add_volume_stats(metric: dict, pred: np.ndarray, target: np.ndarray, thresh
     return metric
 
 
+def _largest_component(mask: np.ndarray) -> np.ndarray:
+    mask = np.asarray(mask).astype(bool)
+    if not mask.any():
+        return mask
+    try:
+        from scipy import ndimage as ndi
+
+        labels, count = ndi.label(mask)
+        if count == 0:
+            return mask
+        sizes = np.bincount(labels.ravel())
+        sizes[0] = 0
+        return labels == int(np.argmax(sizes))
+    except Exception:
+        return _largest_component_numpy(mask)
+
+
+def _largest_component_numpy(mask: np.ndarray) -> np.ndarray:
+    shape = mask.shape
+    visited = np.zeros(shape, dtype=bool)
+    best_component: List[tuple[int, int, int]] = []
+    offsets = ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1))
+    starts = np.argwhere(mask)
+    for start in starts:
+        z, y, x = (int(v) for v in start)
+        if visited[z, y, x]:
+            continue
+        stack = [(z, y, x)]
+        visited[z, y, x] = True
+        component: List[tuple[int, int, int]] = []
+        while stack:
+            current = stack.pop()
+            component.append(current)
+            cz, cy, cx = current
+            for dz, dy, dx in offsets:
+                nz, ny, nx = cz + dz, cy + dy, cx + dx
+                if (
+                    0 <= nz < shape[0]
+                    and 0 <= ny < shape[1]
+                    and 0 <= nx < shape[2]
+                    and mask[nz, ny, nx]
+                    and not visited[nz, ny, nx]
+                ):
+                    visited[nz, ny, nx] = True
+                    stack.append((nz, ny, nx))
+        if len(component) > len(best_component):
+            best_component = component
+    out = np.zeros(shape, dtype=bool)
+    if best_component:
+        zz, yy, xx = zip(*best_component)
+        out[np.asarray(zz), np.asarray(yy), np.asarray(xx)] = True
+    return out
+
+
+def postprocess_prediction(pred: np.ndarray, mode: str, min_component_voxels: int = 0) -> np.ndarray:
+    pred = np.asarray(pred).astype(bool)
+    if mode == "none":
+        out = pred
+    elif mode == "largest_component":
+        out = _largest_component(pred)
+    else:
+        raise ValueError(f"Unknown postprocess mode: {mode}")
+    if min_component_voxels > 0 and int(out.sum()) < int(min_component_voxels):
+        return np.zeros_like(out, dtype=bool)
+    return out
+
+
+def _rows_for_threshold(rows: list[dict], threshold: float) -> list[dict]:
+    return [row for row in rows if abs(float(row["threshold"]) - float(threshold)) < 1e-9]
+
+
+def _write_threshold_summary(output_dir: Path, rows: list[dict], thresholds: list[float]) -> tuple[float, dict]:
+    threshold_summaries = []
+    with (output_dir / "summary_by_threshold.csv").open("w", newline="", encoding="utf-8") as handle:
+        fieldnames = ["threshold", "n", *[f"mean_{key}" for key in METRIC_KEYS]]
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for threshold in thresholds:
+            threshold_rows = _rows_for_threshold(rows, threshold)
+            if not threshold_rows:
+                continue
+            threshold_summary = summarize_metrics(threshold_rows)
+            threshold_summaries.append((float(threshold), threshold_summary))
+            writer.writerow({"threshold": float(threshold), "n": len(threshold_rows), **threshold_summary})
+    best_threshold, best_summary = max(threshold_summaries, key=lambda item: item[1]["mean_dice"])
+    write_summary(output_dir / "summary_best_threshold.txt", best_summary)
+    return best_threshold, best_summary
+
+
 def run(args):
     config_path = resolve_config_path(args.config)
     config = load_config(config_path)
@@ -127,6 +218,7 @@ def run(args):
 
     rows = []
     thresholds = args.threshold_sweep or [args.threshold]
+    thresholds = [float(threshold) for threshold in thresholds]
     for idx, case in enumerate(tqdm(cases, desc="kpta_25d MAMA-MIA")):
         image, mask = load_case_17ch(
             case,
@@ -141,7 +233,11 @@ def run(args):
         prob = predict_kpta_25d_probs(model, image, num_slices, device, args.batch_size, args.amp)
         target = mask.astype(bool)
         for threshold in thresholds:
-            pred = prob >= float(threshold)
+            pred = postprocess_prediction(
+                prob >= float(threshold),
+                mode=args.postprocess,
+                min_component_voxels=args.min_component_voxels,
+            )
             metric = compute_case_metrics(pred, target)
             _add_volume_stats(metric, pred, target, float(threshold))
             metric.update({"id": case.case_id, "cohort": case.cohort})
@@ -154,7 +250,7 @@ def run(args):
                     f"target_fraction={metric['target_fraction']:.6f}"
                 )
 
-    primary_rows = [row for row in rows if abs(float(row["threshold"]) - float(args.threshold)) < 1e-9]
+    primary_rows = _rows_for_threshold(rows, float(args.threshold))
     summary = summarize_metrics(primary_rows or rows)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -169,17 +265,25 @@ def run(args):
             if cohort_rows:
                 writer.writerow({"cohort": cohort, "n": len(cohort_rows), **summarize_metrics(cohort_rows)})
     if len(thresholds) > 1:
-        with (output_dir / "summary_by_threshold.csv").open("w", newline="", encoding="utf-8") as handle:
-            fieldnames = ["threshold", "n", *summary.keys()]
-            writer = csv.DictWriter(handle, fieldnames=fieldnames)
-            writer.writeheader()
-            for threshold in thresholds:
-                threshold_rows = [row for row in rows if abs(float(row["threshold"]) - float(threshold)) < 1e-9]
-                if threshold_rows:
-                    writer.writerow({"threshold": float(threshold), "n": len(threshold_rows), **summarize_metrics(threshold_rows)})
+        best_threshold, best_summary = _write_threshold_summary(output_dir, rows, thresholds)
     print(f"Saved metrics to {output_dir}")
-    for key, value in summary.items():
-        print(f"{key}: {value:.6f}")
+    if len(thresholds) > 1:
+        print("Threshold sweep summary:")
+        for threshold in thresholds:
+            threshold_summary = summarize_metrics(_rows_for_threshold(rows, threshold))
+            print(
+                f"threshold={threshold:.3f} "
+                f"mean_dice={threshold_summary['mean_dice']:.6f} "
+                f"mean_precision={threshold_summary['mean_precision']:.6f} "
+                f"mean_sensitivity={threshold_summary['mean_sensitivity']:.6f} "
+                f"mean_hd95={threshold_summary['mean_hd95']:.6f}"
+            )
+        print(f"Best threshold by mean_dice: {best_threshold:.3f}")
+        for key, value in best_summary.items():
+            print(f"{key}: {value:.6f}")
+    else:
+        for key, value in summary.items():
+            print(f"{key}: {value:.6f}")
 
 
 def _write_metrics_with_cohort(path: Path, rows):
