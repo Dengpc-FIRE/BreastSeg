@@ -1,6 +1,8 @@
 samples: 417
-threshold: 0.43
-mean_dice: 0.810093
-mean_iou: 0.701427
-mean_sensitivity: 0.830239
-mean_precision: 0.828315
+threshold: 0.5
+mean_dice: 0.789050
+mean_iou: 0.680229
+mean_hd95: 8.498563
+mean_sensitivity: 0.826929
+mean_precision: 0.795215
+mean_accuracy: 0.998619

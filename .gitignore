@@ -3,6 +3,16 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+
+/results_kpta_25d_net_k5/test_visualization/visualizations/
+/results_kpta_25d_net_k5/test_visualization/probabilities/
+results_kpta_25d_net_k5/test_visualization/visualizations/
+/results_kpta_25d_net_k5/test_visualization/
+results_kpta_25d_net/test_visualization/masks/
+/results_kpta_25d_net/test_visualization/masks/
+results_kpta_25d_net/test_visualization/visualizations/
+results_kpta_25d_net/test_visualization/visualizations/
+
 # Jupyter笔记本检查点
 .ipynb_checkpoints/
 
@@ -23,7 +33,13 @@ ContrastModel/nnUNet-master/raw/
 *.pt
 *.h5
 *.ckpt
+patient_info_files/
+segmentations/
+images/
+# results_kpta_25d_net_k5/test_visualization/visualizations/
 
+results_kpta_25d_net_k1/
+results_kpta_25d_net_k5/
 # 训练结果目录
 # results_*/
 outputs/
