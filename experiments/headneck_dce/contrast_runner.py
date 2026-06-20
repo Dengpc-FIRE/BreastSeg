@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -24,6 +25,13 @@ from ContrastModel.dataset.config import as_tuple, load_config, select_device, s
 from ContrastModel.dataset.metrics import compute_case_metrics, summarize_metrics, write_metrics_csv, write_summary  # noqa: E402
 from ContrastModel.dataset.models import align_logits, build_model, forward_model  # noqa: E402
 from ContrastModel.dataset.training import dice_loss_with_logits, sliding_window_predict_3d  # noqa: E402
+
+
+def _case_and_slice(sample_id: str) -> tuple[str, int]:
+    match = re.match(r"^(?P<case>.+)_z(?P<z>\d+)$", str(sample_id))
+    if not match:
+        return str(sample_id), 0
+    return match.group("case"), int(match.group("z"))
 
 
 def _normalize_channels(image: np.ndarray, mode: str) -> np.ndarray:
@@ -254,7 +262,7 @@ def train_one_epoch(model, loader, optimizer, scaler, device, cfg) -> float:
 @torch.no_grad()
 def evaluate_2d(model, loader, device, cfg) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
     model.eval()
-    rows = []
+    cases: Dict[str, List[tuple[int, np.ndarray, np.ndarray]]] = {}
     threshold = float(cfg["eval"].get("threshold", 0.5))
     use_amp = bool(cfg["train"].get("amp", True)) and device.type == "cuda"
     for batch in tqdm(loader, desc="eval", leave=False):
@@ -265,9 +273,16 @@ def evaluate_2d(model, loader, device, cfg) -> Tuple[Dict[str, float], List[Dict
         probs = torch.sigmoid(logits).detach().cpu().numpy()
         targets = masks.detach().cpu().numpy()
         for idx, sample_id in enumerate(ids):
-            metric = compute_case_metrics(probs[idx, 0] >= threshold, targets[idx, 0] > 0)
-            metric["id"] = str(sample_id)
-            rows.append(metric)
+            case_id, slice_index = _case_and_slice(str(sample_id))
+            cases.setdefault(case_id, []).append((slice_index, probs[idx, 0] >= threshold, targets[idx, 0] > 0))
+    rows = []
+    for case_id, slices in sorted(cases.items()):
+        ordered = sorted(slices, key=lambda item: item[0])
+        pred = np.stack([item[1] for item in ordered], axis=0)
+        target = np.stack([item[2] for item in ordered], axis=0)
+        metric = compute_case_metrics(pred, target)
+        metric["id"] = case_id
+        rows.append(metric)
     return summarize_metrics(rows), rows
 
 
@@ -390,4 +405,3 @@ def run_test_cli(model_dir: str | Path, model_key: str) -> None:
     cfg = load_config(args.config, model_dir=model_dir, model_key=model_key)
     _apply_overrides(cfg, args)
     test_model(model_dir, model_key, cfg, select_device(args.device), args.checkpoint)
-

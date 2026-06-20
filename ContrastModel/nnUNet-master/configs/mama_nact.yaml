@@ -1,0 +1,45 @@
+model:
+  name: nnunet
+  input_channels: 17
+  out_channels: 1
+  pretrained: false
+data:
+  mode: 3d
+  raw_dataset_root: ../../../processed_mama_nact_3d
+  cache_root: ../../dataset/processed_mama_nact_3d/nnunet
+  patch_size: [48, 128, 128]
+  normalize: zscore
+  label_phase:
+  allow_missing_phases: false
+train:
+  epochs: 100
+  batch_size: 1
+  lr: 0.0001
+  weight_decay: 0.00001
+  num_workers: 4
+  early_stopping: 0
+  scheduler: poly
+  amp: true
+  seed: 2026
+eval:
+  threshold: 0.5
+  save_predictions: true
+output:
+  checkpoint_dir: mama_nact_results
+  test_dir: mama_nact_test_results
+  log_file: mama_nact_training_log.csv
+nnunet:
+  dataset_id: 610
+  dataset_name: MAMANACT17
+  raw_dir: mama_nact_raw
+  preprocessed_dir: mama_nact_preprocessed
+  results_dir: mama_nact_results
+  configuration: 3d_fullres
+  trainer: nnUNetTrainerBreastDM17
+  plans: nnUNetPlans
+  fold: 0
+  num_processes: 4
+  verify_dataset_integrity: false
+  clean: false
+  checkpoint_name: checkpoint_best.pth
+

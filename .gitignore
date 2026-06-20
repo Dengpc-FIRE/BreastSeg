@@ -19,6 +19,7 @@ results_kpta_25d_net/test_visualization/visualizations/
 # 数据集和中间文件
 cropped_dataset/
 Patient DCE and VFA Files/
+CC-Tumor-Heterogeneity/
 input_images/
 final_evaluation_results/
 processed_9ch_sub2label/

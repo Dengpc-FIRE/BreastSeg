@@ -15,7 +15,18 @@ from tqdm import tqdm
 
 
 ROI_PATTERNS = ("gtv", "gtvp", "primary gtv", "primary tumor", "primary tumour")
-EXCLUDE_ROI_PATTERNS = ("parotid", "submandibular", "sublingual", "gland", "salivary")
+EXCLUDE_ROI_PATTERNS = (
+    "parotid",
+    "submandibular",
+    "sublingual",
+    "gland",
+    "salivary",
+    "gtvn",
+    "gtv n",
+    "nodal",
+    "node",
+    "lymph",
+)
 
 
 @dataclass
@@ -110,7 +121,7 @@ def select_channels(image: np.ndarray, mode: str) -> tuple[np.ndarray, dict]:
     }
 
 
-def affine_from_dicom(first_ds, slice_spacing: float) -> list[list[float]]:
+def affine_from_dicom(first_ds, slice_step: float) -> list[list[float]]:
     orientation = np.asarray([float(v) for v in first_ds.ImageOrientationPatient], dtype=np.float64)
     row_cos = orientation[:3]
     col_cos = orientation[3:]
@@ -120,7 +131,7 @@ def affine_from_dicom(first_ds, slice_spacing: float) -> list[list[float]]:
     affine = np.eye(4, dtype=np.float64)
     affine[:3, 0] = row_cos * col_spacing
     affine[:3, 1] = col_cos * row_spacing
-    affine[:3, 2] = normal * slice_spacing
+    affine[:3, 2] = normal * slice_step
     affine[:3, 3] = origin
     return affine.tolist()
 
@@ -144,6 +155,12 @@ def slice_geometry(first_ds, datasets: Sequence) -> tuple[np.ndarray, np.ndarray
     return row_cos, col_cos, normal, row_spacing, col_spacing, slice_spacing, unique_positions
 
 
+def slice_step_from_positions(unique_positions: Sequence[float], fallback_spacing: float) -> float:
+    if len(unique_positions) > 1:
+        return float(unique_positions[1] - unique_positions[0])
+    return float(fallback_spacing)
+
+
 def infer_order(records: list[dict], depth: int) -> str:
     if all(rec["temporal"] is not None for rec in records):
         return "dicom_temporal_position"
@@ -154,6 +171,33 @@ def infer_order(records: list[dict], depth: int) -> str:
         if len(set(first)) == depth and len(set(second)) == depth:
             return "time_major_by_instance"
     return "slice_major_or_inferred_by_instance"
+
+
+def _reference_datasets_by_slice(records: list[dict], depth: int, ordering: str) -> list:
+    """Return one reference image per z-index, matching the reconstructed volume order."""
+    selected = [None] * depth
+    if all(rec["temporal"] is not None for rec in records):
+        first_temporal = min(int(rec["temporal"]) for rec in records)
+        candidates = [rec for rec in records if int(rec["temporal"]) == first_temporal]
+    elif ordering == "time_major_by_instance":
+        ordered = sorted(records, key=lambda r: (r["instance"], natural_key(r["path"])))
+        candidates = ordered[:depth]
+    else:
+        candidates = sorted(records, key=lambda r: (r["instance"], natural_key(r["path"])))
+    for rec in candidates:
+        z = int(rec["slice_index"])
+        if 0 <= z < depth and selected[z] is None:
+            selected[z] = rec["ds"]
+    missing = [idx for idx, ds in enumerate(selected) if ds is None]
+    if missing:
+        for rec in sorted(records, key=lambda r: (r["instance"], natural_key(r["path"]))):
+            z = int(rec["slice_index"])
+            if z in missing and selected[z] is None:
+                selected[z] = rec["ds"]
+        missing = [idx for idx, ds in enumerate(selected) if ds is None]
+    if missing:
+        raise ValueError(f"Could not build DCE reference geometry for slices: {missing}")
+    return selected
 
 
 def read_dce_series(dce_dir: Path) -> tuple[np.ndarray, list, tuple[float, float, float], list[list[float]], list[int], list[float], str]:
@@ -207,13 +251,14 @@ def read_dce_series(dce_dir: Path) -> tuple[np.ndarray, list, tuple[float, float
                 t = idx % time_count
                 image[t, rec["slice_index" if ordering == "time_major_by_instance" else "slice_index"]] = rec["ds"].pixel_array.astype(np.float32)
             ordering = "fallback_instance_with_position"
+    reference_datasets = _reference_datasets_by_slice(records, depth, ordering)
     slope = float(getattr(first, "RescaleSlope", 1.0))
     intercept = float(getattr(first, "RescaleIntercept", 0.0))
     image = image * slope + intercept
     spacing = (float(row_spacing), float(col_spacing), float(slice_spacing))
-    affine = affine_from_dicom(first, slice_spacing)
+    affine = affine_from_dicom(reference_datasets[0], slice_step_from_positions(unique_positions, slice_spacing))
     temporal_positions = list(range(1, time_count + 1))
-    return image, datasets, spacing, affine, temporal_positions, unique_positions, ordering
+    return image, reference_datasets, spacing, affine, temporal_positions, unique_positions, ordering
 
 
 def roi_name_map(rtstruct) -> dict[int, str]:
@@ -227,6 +272,8 @@ def is_gtv_name(name: str) -> bool:
     lowered = name.lower().replace("_", " ")
     if any(pattern in lowered for pattern in EXCLUDE_ROI_PATTERNS):
         return False
+    if lowered.strip() in {"gtv", "gtvp", "gtv p"}:
+        return True
     return any(pattern in lowered for pattern in ROI_PATTERNS)
 
 
@@ -302,8 +349,8 @@ def process_patient(patient_dir: Path, image_size: int, channel_mode: str, keep_
     case_id = patient_dir.name
     dce_dir = find_pre_dce_dir(patient_dir)
     rtstruct_path = find_rtstruct(patient_dir)
-    image, datasets, spacing, affine, temporal_positions, slice_positions, ordering = read_dce_series(dce_dir)
-    mask, roi_names = rasterize_rtstruct(rtstruct_path, datasets[0], datasets[: len(slice_positions)], image.shape[1])
+    image, reference_datasets, spacing, affine, temporal_positions, slice_positions, ordering = read_dce_series(dce_dir)
+    mask, roi_names = rasterize_rtstruct(rtstruct_path, reference_datasets[0], reference_datasets, image.shape[1])
     if not roi_names and not keep_empty_gtv:
         print(f"[skip] {case_id}: no primary GTV-like ROI in {rtstruct_path.name}")
         return None
@@ -427,4 +474,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
