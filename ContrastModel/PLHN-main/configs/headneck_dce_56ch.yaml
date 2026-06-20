@@ -1,0 +1,35 @@
+model:
+  name: plhn
+  input_channels: 56
+  out_channels: 1
+  pretrained: false
+  base_channels: 32
+  hidden_size: 256
+  transformer_layers: 8
+data:
+  mode: 3d
+  train_path: ../../../processed_headneck_dce_56ch_3d/train
+  val_path: ../../../processed_headneck_dce_56ch_3d/val
+  test_path: ../../../processed_headneck_dce_56ch_3d/test
+  image_size: [256, 256]
+  patch_size: [30, 128, 128]
+  samples_per_volume: 4
+  positive_crop_prob: 0.7
+  normalize: zscore
+train:
+  epochs: 100
+  batch_size: 1
+  lr: 0.0001
+  weight_decay: 0.00001
+  num_workers: 2
+  early_stopping: 30
+  amp: true
+  seed: 2026
+eval:
+  threshold: 0.5
+  sliding_window_overlap: 0.5
+output:
+  checkpoint_dir: checkpoints_headneck_dce_56ch
+  test_dir: test_results_headneck_dce_56ch
+  log_file: training_log_headneck_dce_56ch.csv
+

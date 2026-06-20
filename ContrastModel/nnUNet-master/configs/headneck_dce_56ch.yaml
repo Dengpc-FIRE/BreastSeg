@@ -1,0 +1,42 @@
+model:
+  name: nnunet
+  input_channels: 56
+  out_channels: 1
+  pretrained: false
+data:
+  mode: 3d
+  train_path: ../../../processed_headneck_dce_56ch_3d/train
+  val_path: ../../../processed_headneck_dce_56ch_3d/val
+  test_path: ../../../processed_headneck_dce_56ch_3d/test
+  image_size: [256, 256]
+  normalize: zscore
+train:
+  epochs: 100
+  batch_size: 1
+  lr: 0.0001
+  weight_decay: 0.00001
+  num_workers: 4
+  early_stopping: 0
+  scheduler: poly
+  amp: true
+  seed: 2026
+eval:
+  threshold: 0.5
+  save_predictions: true
+output:
+  checkpoint_dir: results_headneck_dce_56ch
+  test_dir: test_results_headneck_dce_56ch
+  log_file: training_log_headneck_dce_56ch.csv
+nnunet:
+  dataset_id: 556
+  dataset_name: HeadNeckDCE56
+  raw_dir: raw_headneck_dce_56ch
+  preprocessed_dir: preprocessed_headneck_dce_56ch
+  results_dir: results_headneck_dce_56ch
+  configuration: 3d_fullres
+  trainer: nnUNetTrainer
+  plans: nnUNetPlans
+  fold: 0
+  num_processes: 4
+  checkpoint_name: checkpoint_best.pth
+

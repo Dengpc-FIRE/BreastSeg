@@ -9,6 +9,7 @@ from typing import List
 
 import numpy as np
 import torch
+from PIL import Image, ImageDraw
 from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +61,7 @@ def parse_args():
     parser.add_argument("--metric-mode", default="slice", choices=["slice", "volume"])
     parser.add_argument("--strict-load", action="store_true")
     parser.add_argument("--diagnose-cases", type=int, default=0)
+    parser.add_argument("--debug-images", type=int, default=0, help="Save this many high-GT-area slice debug PNGs per diagnosed case.")
     parser.add_argument("--threshold-sweep", nargs="+", type=float, default=None)
     parser.add_argument("--postprocess", default="none", choices=["none", "largest_component"])
     parser.add_argument("--min-component-voxels", type=int, default=0)
@@ -275,6 +277,81 @@ def evaluate_prediction(
     return rows
 
 
+def _as_uint8(plane: np.ndarray) -> np.ndarray:
+    plane = np.nan_to_num(plane.astype(np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    lo, hi = float(np.percentile(plane, 1.0)), float(np.percentile(plane, 99.5))
+    if hi <= lo:
+        lo, hi = float(plane.min()), float(plane.max())
+    if hi <= lo:
+        return np.zeros_like(plane, dtype=np.uint8)
+    return (np.clip((plane - lo) / (hi - lo), 0.0, 1.0) * 255.0).astype(np.uint8)
+
+
+def _rgb_gray(plane: np.ndarray) -> np.ndarray:
+    gray = _as_uint8(plane)
+    return np.stack([gray, gray, gray], axis=-1)
+
+
+def _overlay_masks(base: np.ndarray, target: np.ndarray, pred: np.ndarray) -> np.ndarray:
+    rgb = _rgb_gray(base).astype(np.float32)
+    target = np.asarray(target).astype(bool)
+    pred = np.asarray(pred).astype(bool)
+    both = target & pred
+    target_only = target & ~pred
+    pred_only = pred & ~target
+    rgb[target_only] = 0.45 * rgb[target_only] + 0.55 * np.array([0, 255, 0], dtype=np.float32)
+    rgb[pred_only] = 0.45 * rgb[pred_only] + 0.55 * np.array([255, 0, 0], dtype=np.float32)
+    rgb[both] = 0.35 * rgb[both] + 0.65 * np.array([255, 220, 0], dtype=np.float32)
+    return np.clip(rgb, 0, 255).astype(np.uint8)
+
+
+def _tile_with_label(tile: np.ndarray, label: str) -> Image.Image:
+    image = Image.fromarray(tile)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((0, 0, image.width, 16), fill=(0, 0, 0))
+    draw.text((4, 2), label, fill=(255, 255, 255))
+    return image
+
+
+def save_debug_images(
+    output_dir: Path,
+    case_id: str,
+    image: np.ndarray,
+    target: np.ndarray,
+    prob: np.ndarray,
+    pred_full: np.ndarray,
+    eval_indices: np.ndarray,
+    threshold: float,
+    count: int,
+) -> None:
+    if count <= 0:
+        return
+    debug_dir = output_dir / "debug_images" / case_id
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    slice_scores = [(int(z), int(target[int(z)].sum())) for z in eval_indices]
+    slice_scores = [item for item in slice_scores if item[1] > 0]
+    if not slice_scores:
+        slice_scores = [(int(z), 0) for z in eval_indices[:count]]
+    for z, _ in sorted(slice_scores, key=lambda item: item[1], reverse=True)[:count]:
+        pre = image[0, z]
+        post1 = image[1, z] if image.shape[0] > 1 else image[0, z]
+        sub_max = image[9:17, z].max(axis=0) if image.shape[0] >= 17 else image[-1, z]
+        prob_plane = prob[z]
+        pred = pred_full[z]
+        gt = target[z]
+        tiles = [
+            _tile_with_label(_rgb_gray(pre), "pre"),
+            _tile_with_label(_rgb_gray(post1), "post1"),
+            _tile_with_label(_rgb_gray(sub_max), "sub_max"),
+            _tile_with_label(_rgb_gray(prob_plane), "prob"),
+            _tile_with_label(_overlay_masks(sub_max, gt, pred), "GT green / PRED red / both yellow"),
+        ]
+        canvas = Image.new("RGB", (tiles[0].width * len(tiles), tiles[0].height))
+        for idx, tile in enumerate(tiles):
+            canvas.paste(tile, (idx * tile.width, 0))
+        canvas.save(debug_dir / f"{case_id}_z{z:04d}_thr{threshold:.2f}.png")
+
+
 def run(args):
     config_path = resolve_config_path(args.config)
     config = load_config(config_path)
@@ -303,6 +380,8 @@ def run(args):
     rows = []
     thresholds = args.threshold_sweep or [args.threshold]
     thresholds = [float(threshold) for threshold in thresholds]
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     for idx, case in enumerate(tqdm(cases, desc="kpta_25d MAMA-MIA")):
         image, mask = load_case_17ch(
             case,
@@ -339,6 +418,18 @@ def run(args):
                 args.metric_mode,
             )
             rows.extend(metric_rows)
+            if args.debug_images and idx < args.diagnose_cases:
+                save_debug_images(
+                    output_dir,
+                    case.case_id,
+                    image,
+                    target,
+                    prob,
+                    pred_full,
+                    eval_indices,
+                    float(threshold),
+                    args.debug_images,
+                )
             if args.diagnose_cases and idx < args.diagnose_cases:
                 metric = summarize_metrics(metric_rows)
                 pred_fraction = float(np.mean([row["pred_fraction"] for row in metric_rows]))
@@ -352,8 +443,6 @@ def run(args):
 
     primary_rows = _rows_for_threshold(rows, float(args.threshold))
     summary = summarize_metrics(primary_rows or rows)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
     _write_metrics_with_cohort(output_dir / "metrics.csv", rows)
     write_summary(output_dir / "summary.txt", summary)
     with (output_dir / "summary_by_cohort.csv").open("w", newline="", encoding="utf-8") as handle:
