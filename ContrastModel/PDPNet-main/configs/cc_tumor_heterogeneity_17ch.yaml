@@ -1,0 +1,31 @@
+model:
+  name: pdpnet
+  input_channels: 17
+  out_channels: 1
+  pretrained: false
+  use_location_branch: false
+data:
+  mode: 2d
+  train_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/train
+  val_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/val
+  test_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/test
+  image_size: [128, 128]
+  normalize: zscore
+train:
+  epochs: 100
+  batch_size: 16
+  lr: 0.0001
+  weight_decay: 0.00001
+  num_workers: 4
+  early_stopping: 30
+  amp: false
+  seed: 2026
+  extra_loss_weight: 0.0
+  max_grad_norm: 1.0
+eval:
+  threshold: 0.5
+output:
+  checkpoint_dir: checkpoints_cc_tumor_heterogeneity_17ch
+  test_dir: test_results_cc_tumor_heterogeneity_17ch
+  log_file: training_log_cc_tumor_heterogeneity_17ch.csv
+

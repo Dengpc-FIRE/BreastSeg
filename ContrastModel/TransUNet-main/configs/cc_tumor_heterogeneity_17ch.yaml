@@ -1,0 +1,30 @@
+model:
+  name: transunet
+  input_channels: 17
+  out_channels: 1
+  pretrained: false
+  vit_name: ViT-B_16
+  n_skip: 0
+data:
+  mode: 2d
+  train_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/train
+  val_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/val
+  test_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/test
+  image_size: [256, 256]
+  normalize: zscore
+train:
+  epochs: 100
+  batch_size: 4
+  lr: 0.0001
+  weight_decay: 0.00001
+  num_workers: 4
+  early_stopping: 30
+  amp: true
+  seed: 2026
+eval:
+  threshold: 0.5
+output:
+  checkpoint_dir: checkpoints_cc_tumor_heterogeneity_17ch
+  test_dir: test_results_cc_tumor_heterogeneity_17ch
+  log_file: training_log_cc_tumor_heterogeneity_17ch.csv
+

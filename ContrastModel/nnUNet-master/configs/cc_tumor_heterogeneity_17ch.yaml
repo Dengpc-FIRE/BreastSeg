@@ -1,0 +1,49 @@
+model:
+  name: nnunet
+  input_channels: 17
+  out_channels: 1
+  pretrained: false
+data:
+  mode: 3d
+  train_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/train
+  val_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/val
+  test_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/test
+  raw_dataset_root: ../../../processed_cc_tumor_heterogeneity_17ch_3d_raw
+  cache_root: ../../dataset/processed_3d_cc_tumor_heterogeneity_17ch/nnunet
+  phase_names: [PRE, POST1, POST2, POST3, POST4, POST5, POST6, POST7, POST8, SUB1, SUB2, SUB3, SUB4, SUB5, SUB6, SUB7, SUB8]
+  label_phase: GT
+  image_size: [256, 256]
+  patch_size: [18, 128, 128]
+  normalize: zscore
+  allow_missing_phases: false
+train:
+  epochs: 100
+  batch_size: 1
+  lr: 0.0001
+  weight_decay: 0.00001
+  num_workers: 4
+  early_stopping: 0
+  scheduler: poly
+  amp: true
+  seed: 2026
+eval:
+  threshold: 0.5
+  save_predictions: true
+output:
+  checkpoint_dir: results_cc_tumor_heterogeneity_17ch
+  test_dir: test_results_cc_tumor_heterogeneity_17ch
+  log_file: training_log_cc_tumor_heterogeneity_17ch.csv
+nnunet:
+  dataset_id: 557
+  dataset_name: CCTumorHeterogeneity17
+  raw_dir: raw_cc_tumor_heterogeneity_17ch
+  preprocessed_dir: preprocessed_cc_tumor_heterogeneity_17ch
+  results_dir: results_cc_tumor_heterogeneity_17ch
+  configuration: 3d_fullres
+  trainer: nnUNetTrainerBreastDM17
+  plans: nnUNetPlans
+  fold: 0
+  num_processes: 4
+  verify_dataset_integrity: false
+  clean: false
+  checkpoint_name: checkpoint_best.pth
