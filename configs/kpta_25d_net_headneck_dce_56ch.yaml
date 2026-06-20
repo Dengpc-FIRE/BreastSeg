@@ -4,7 +4,7 @@ train:
   test_path: "./processed_headneck_dce_56ch_25d/test"
   output_path: "./results_kpta_headneck_dce_56ch"
   epochs: 100
-  batch_size: 4
+  batch_size: 2
   eval_batch_size: 4
   lr: 0.0002
   weight_decay: 0.00005
@@ -31,7 +31,7 @@ early_stopping:
   enabled: true
   patience: 25
   min_delta: 0.0001
-  start_epoch: 40
+  start_epoch: 70
 
 model:
   name: "kpta_25d_net"
@@ -59,7 +59,7 @@ model:
   use_enhancement_prior: true
   use_kinetic_bias: true
   use_difference_refinement: true
-  residual_mean_weight: 0.5
+  residual_mean_weight: 0.125
   lambda_enh_init: 1.0
   gamma_diff_init: 0.5
   phase_attention: true
@@ -77,10 +77,10 @@ model:
 loss:
   name: "kpta_25d_loss"
   bce_weight: 0.3
-  lambda_boundary: 0.2
-  lambda_uncertainty: 0.05
-  lambda_attention_smooth: 0.003
-  boundary_thickness: 1
+  lambda_boundary: 0.05
+  lambda_uncertainty: 0.0125
+  lambda_attention_smooth: 0.00125
+  boundary_thickness: 4
 
 ablation:
   disable_kinetic_maps: false

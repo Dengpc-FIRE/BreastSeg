@@ -3,6 +3,14 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+processed_headneck_dce_56ch_25d/
+processed_headneck_dce_56ch_2d/
+processed_headneck_dce_56ch_3d/
+processed_mama_nact_17ch/
+processed_mama_nact_25d/
+processed_mama_nact_3d/
+PatientDCEandVFAFiles.zip
+
 
 /results_kpta_25d_net_k5/test_visualization/visualizations/
 /results_kpta_25d_net_k5/test_visualization/probabilities/
