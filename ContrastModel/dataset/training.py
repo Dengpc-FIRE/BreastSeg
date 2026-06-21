@@ -98,6 +98,13 @@ def _save_checkpoint(path: Path, model: torch.nn.Module, optimizer: torch.optim.
     )
 
 
+def _load_training_state(path: Path, model: torch.nn.Module, optimizer: torch.optim.Optimizer, device: torch.device) -> None:
+    state = torch.load(path, map_location=device)
+    model.load_state_dict(state["model_state"], strict=False)
+    if "optimizer_state" in state:
+        optimizer.load_state_dict(state["optimizer_state"])
+
+
 def train_one_epoch(model, loader, optimizer, scaler, device, cfg) -> float:
     model.train()
     total = 0.0
@@ -253,6 +260,13 @@ def train_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devi
     best_score = -1.0
     best_epoch = 0
     patience = int(cfg["train"].get("early_stopping", 30))
+    collapse_guard = bool(cfg["train"].get("collapse_guard", False))
+    collapse_ratio = float(cfg["train"].get("collapse_ratio", 0.25))
+    collapse_min_epoch = int(cfg["train"].get("collapse_min_epoch", 5))
+    collapse_min_best = float(cfg["train"].get("collapse_min_best", 0.05))
+    collapse_lr_factor = float(cfg["train"].get("collapse_lr_factor", 0.2))
+    collapse_stop_after = int(cfg["train"].get("collapse_stop_after", 0))
+    collapse_events = 0
     for epoch in range(1, int(cfg["train"].get("epochs", 100)) + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, scaler, device, cfg)
         if mode == "3d":
@@ -267,6 +281,12 @@ def train_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devi
             best_score = score
             best_epoch = epoch
             _save_checkpoint(ckpt_dir / "best_model.pth", model, optimizer, epoch, best_score, cfg)
+        collapsed = (
+            collapse_guard
+            and epoch >= collapse_min_epoch
+            and best_score >= collapse_min_best
+            and score < best_score * collapse_ratio
+        )
         _append_log(
             log_path,
             {
@@ -275,9 +295,28 @@ def train_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devi
                 "val_mean_dice": f"{val_summary['mean_dice']:.6f}",
                 "val_mean_iou": f"{val_summary['mean_iou']:.6f}",
                 "lr": f"{optimizer.param_groups[0]['lr']:.8f}",
+                "collapse_guard": int(collapsed),
             },
         )
-        print(f"epoch={epoch} train_loss={train_loss:.6f} val_mean_dice={score:.6f} best={best_score:.6f}")
+        print(
+            f"epoch={epoch} train_loss={train_loss:.6f} val_mean_dice={score:.6f} "
+            f"best={best_score:.6f} lr={optimizer.param_groups[0]['lr']:.8f}"
+        )
+        if collapsed:
+            collapse_events += 1
+            best_path = ckpt_dir / "best_model.pth"
+            if best_path.exists():
+                _load_training_state(best_path, model, optimizer, device)
+            for group in optimizer.param_groups:
+                group["lr"] = max(float(group["lr"]) * collapse_lr_factor, 1.0e-8)
+            print(
+                "collapse guard triggered: "
+                f"epoch={epoch} score={score:.6f} best={best_score:.6f}; "
+                f"restored best epoch {best_epoch}, lr={optimizer.param_groups[0]['lr']:.8f}"
+            )
+            if collapse_stop_after > 0 and collapse_events >= collapse_stop_after:
+                print(f"stopping after {collapse_events} collapse guard event(s)")
+                break
         if patience > 0 and epoch - best_epoch >= patience:
             print(f"early stopping at epoch {epoch}; best epoch {best_epoch}")
             break

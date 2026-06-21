@@ -6,6 +6,7 @@ model:
   base_channels: 32
   hidden_size: 256
   transformer_layers: 8
+  output_index: 2
 data:
   mode: 3d
   train_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/train
@@ -31,6 +32,13 @@ train:
   amp: false
   seed: 2026
   max_grad_norm: 1.0
+  scheduler: reduce_on_plateau
+  collapse_guard: true
+  collapse_ratio: 0.25
+  collapse_min_epoch: 8
+  collapse_min_best: 0.1
+  collapse_lr_factor: 0.2
+  collapse_stop_after: 1
 eval:
   threshold: 0.5
   sliding_window_overlap: 0.5

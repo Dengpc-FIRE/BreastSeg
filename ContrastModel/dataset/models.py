@@ -206,12 +206,15 @@ class UNetPlusPlus2D(nn.Module):
 
 
 class ProbOutputWrapper(nn.Module):
-    def __init__(self, model: nn.Module) -> None:
+    def __init__(self, model: nn.Module, output_index: int | None = None) -> None:
         super().__init__()
         self.model = model
+        self.output_index = output_index
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         output = self.model(x)
+        if self.output_index is not None and isinstance(output, (list, tuple)):
+            output = output[self.output_index]
         prob, _ = extract_logits(output)
         if not torch.isfinite(prob).all():
             prob = torch.nan_to_num(prob, nan=0.5, posinf=1.0 - 1e-4, neginf=1e-4)
@@ -367,7 +370,11 @@ def _build_plhn(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
             hidden_size=int(cfg["model"].get("hidden_size", 192)),
             TransformerLayerNum=int(cfg["model"].get("transformer_layers", 4)),
         )
-        return ProbOutputWrapper(model)
+        output_index = cfg["model"].get("output_index")
+        return ProbOutputWrapper(
+            model,
+            output_index=None if output_index is None else int(output_index),
+        )
 
 
 BUILDERS = {
