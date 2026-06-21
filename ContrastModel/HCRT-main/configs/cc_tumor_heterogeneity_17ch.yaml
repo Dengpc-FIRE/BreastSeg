@@ -15,7 +15,7 @@ data:
   phase_names: [PRE, POST1, POST2, POST3, POST4, POST5, POST6, POST7, POST8, SUB1, SUB2, SUB3, SUB4, SUB5, SUB6, SUB7, SUB8]
   label_phase: GT
   image_size: [256, 256]
-  patch_size: [18, 128, 128]
+  patch_size: [48, 128, 128]
   samples_per_volume: 4
   positive_crop_prob: 0.7
   normalize: zscore
@@ -36,4 +36,3 @@ output:
   checkpoint_dir: checkpoints_cc_tumor_heterogeneity_17ch
   test_dir: test_results_cc_tumor_heterogeneity_17ch
   log_file: training_log_cc_tumor_heterogeneity_17ch.csv
-

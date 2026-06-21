@@ -26,6 +26,22 @@ def prepend_sys_path(*paths: Path) -> Iterator[None]:
                 sys.path.remove(path)
 
 
+@contextlib.contextmanager
+def isolated_import_prefixes(*prefixes: str) -> Iterator[None]:
+    def matches(name: str) -> bool:
+        return any(name == prefix or name.startswith(f"{prefix}.") for prefix in prefixes)
+
+    saved = {name: module for name, module in sys.modules.items() if matches(name)}
+    for name in list(saved):
+        del sys.modules[name]
+    try:
+        yield
+    finally:
+        for name in [name for name in sys.modules if matches(name)]:
+            del sys.modules[name]
+        sys.modules.update(saved)
+
+
 def _logit_from_prob(prob: torch.Tensor) -> torch.Tensor:
     prob = prob.clamp(1e-4, 1.0 - 1e-4)
     return torch.log(prob / (1.0 - prob))
@@ -283,7 +299,7 @@ def _build_attention_gated(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 
 def _build_pdpnet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("model"), prepend_sys_path(model_dir):
         dpk = importlib.import_module("model.DPKNet")
         seg = dpk.DPKNet(channels=cfg["model"]["input_channels"])
         if not bool(cfg["model"].get("use_location_branch", False)):
