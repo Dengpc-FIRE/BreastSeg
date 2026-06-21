@@ -140,6 +140,42 @@ def parse_time_to_seconds(value: object) -> float | None:
         return None
 
 
+def dicom_candidate_files(folder: Path) -> list[Path]:
+    files = [path for path in folder.rglob("*") if path.is_file()]
+    dcm_files = [path for path in files if path.suffix.lower() == ".dcm"]
+    return sorted(dcm_files if dcm_files else files, key=natural_key)
+
+
+def read_pixel_datasets(folder: Path) -> list[tuple[Path, object]]:
+    pydicom = require_pydicom()
+    datasets = []
+    for path in dicom_candidate_files(folder):
+        try:
+            ds = pydicom.dcmread(str(path), force=True)
+        except Exception:
+            continue
+        if (
+            hasattr(ds, "PixelData")
+            and hasattr(ds, "ImagePositionPatient")
+            and hasattr(ds, "ImageOrientationPatient")
+            and hasattr(ds, "PixelSpacing")
+        ):
+            datasets.append((path, ds))
+    return datasets
+
+
+def read_rtstruct_dataset(folder: Path):
+    pydicom = require_pydicom()
+    for path in dicom_candidate_files(folder):
+        try:
+            ds = pydicom.dcmread(str(path), force=True)
+        except Exception:
+            continue
+        if getattr(ds, "Modality", "") == "RTSTRUCT" or hasattr(ds, "StructureSetROISequence"):
+            return ds
+    raise FileNotFoundError(f"No RTSTRUCT DICOM found in {folder}")
+
+
 def dicom_geometry(first_ds, datasets: Sequence) -> tuple[np.ndarray, np.ndarray, np.ndarray, float, float, float, list[float]]:
     orientation = np.asarray([float(v) for v in first_ds.ImageOrientationPatient], dtype=np.float64)
     row_cos = orientation[:3]
@@ -187,11 +223,11 @@ def reference_datasets(records: list[dict], depth: int, ordering: str) -> list:
 
 
 def read_dce(dce_dir: Path) -> tuple[np.ndarray, list, list, tuple[float, float, float], str]:
-    pydicom = require_pydicom()
-    paths = sorted(dce_dir.glob("*.dcm"), key=natural_key)
-    if not paths:
-        raise FileNotFoundError(f"No DICOM files found in {dce_dir}")
-    datasets = [pydicom.dcmread(str(path), force=True) for path in paths]
+    path_datasets = read_pixel_datasets(dce_dir)
+    if not path_datasets:
+        raise FileNotFoundError(f"No pixel DICOM files found in {dce_dir}")
+    paths = [item[0] for item in path_datasets]
+    datasets = [item[1] for item in path_datasets]
     first = datasets[0]
     row_cos, col_cos, normal, row_spacing, col_spacing, slice_spacing, positions = dicom_geometry(first, datasets)
     depth = len(positions)
@@ -279,8 +315,8 @@ def detect_enhancement_start(image: np.ndarray, time_records: Sequence, default_
     return default_index, "fallback_first_frame"
 
 
-def build_17ch(image: np.ndarray, max_pre_frames: int) -> tuple[np.ndarray, dict]:
-    start, method = detect_enhancement_start(image)
+def build_17ch(image: np.ndarray, time_records: Sequence, max_pre_frames: int) -> tuple[np.ndarray, dict]:
+    start, method = detect_enhancement_start(image, time_records)
     if start <= 1:
         pre_count = 1
     else:
@@ -316,11 +352,7 @@ def selected_roi_numbers(names: dict[int, str], include_regex: str) -> set[int]:
 
 
 def rasterize_rtstruct(rtstruct_dir: Path, reference_datasets: Sequence, include_regex: str) -> tuple[np.ndarray, list[str]]:
-    pydicom = require_pydicom()
-    files = sorted(rtstruct_dir.glob("*.dcm"), key=natural_key)
-    if not files:
-        raise FileNotFoundError(f"No RTSTRUCT DICOM found in {rtstruct_dir}")
-    rt = pydicom.dcmread(str(files[0]), force=True)
+    rt = read_rtstruct_dataset(rtstruct_dir)
     names = roi_name_map(rt)
     selected = selected_roi_numbers(names, include_regex)
     selected_names = [names[number] for number in sorted(selected)]
@@ -391,7 +423,7 @@ def process_row(row: dict, rt_row: dict, manifest_root: Path, split: str, image_
     dce_dir = normalize_location(manifest_root, row["File Location"])
     rt_dir = normalize_location(manifest_root, rt_row["File Location"])
     raw_image, reference_datasets, time_records, spacing, ordering = read_dce(dce_dir)
-    channels, channel_meta = build_17ch(raw_image, max_pre_frames=max_pre_frames)
+    channels, channel_meta = build_17ch(raw_image, time_records, max_pre_frames=max_pre_frames)
     channels = scale_to_uint8_like(channels)
     channels = resize_4d(channels, image_size)
     mask, roi_names = rasterize_rtstruct(rt_dir, reference_datasets, roi_regex)
@@ -483,4 +515,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
