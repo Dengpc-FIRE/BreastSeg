@@ -224,16 +224,23 @@ class ProbOutputWrapper(nn.Module):
 class PLHNWrapper(nn.Module):
     needs_target = True
 
-    def __init__(self, net: nn.Module, proto_loss: nn.Module | None = None, output_index: int = -1) -> None:
+    def __init__(
+        self,
+        net: nn.Module,
+        proto_loss: nn.Module | None = None,
+        output_index: int = -1,
+        pass_target: bool = False,
+    ) -> None:
         super().__init__()
         self.net = net
         self.proto_loss = proto_loss
         self.output_index = output_index
+        self.pass_target = pass_target
 
     def forward(self, x: torch.Tensor, target: torch.Tensor | None = None) -> Dict[str, torch.Tensor | None]:
-        output = self.net(x, target) if target is not None else self.net(x)
+        output = self.net(x, target) if self.pass_target and target is not None else self.net(x)
         extra = None
-        if target is not None and isinstance(output, (list, tuple)) and output and isinstance(output[0], dict):
+        if self.pass_target and target is not None and isinstance(output, (list, tuple)) and output and isinstance(output[0], dict):
             if self.proto_loss is not None:
                 extra = self.proto_loss(output[0], target)
         selected = output
@@ -394,15 +401,21 @@ def _build_plhn(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
             hidden_size=int(cfg["model"].get("hidden_size", 192)),
             TransformerLayerNum=int(cfg["model"].get("transformer_layers", 4)),
         )
+        if hasattr(model, "update_prototype"):
+            model.update_prototype = bool(cfg["model"].get("update_prototype", False))
+        if hasattr(model, "use_prototype"):
+            model.use_prototype = bool(cfg["model"].get("use_prototype", False))
         output_index = int(cfg["model"].get("output_index", -1))
         proto_loss = None
         if bool(cfg["model"].get("use_prototype_loss", True)):
             loss_module = importlib.import_module("Model.modelv5.loss_proto")
             proto_loss = loss_module.PixelPrototypeCELoss()
+        pass_target = bool(cfg["model"].get("pass_target", False))
         return PLHNWrapper(
             model,
             proto_loss=proto_loss,
             output_index=output_index,
+            pass_target=pass_target,
         )
 
 

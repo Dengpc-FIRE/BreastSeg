@@ -7,7 +7,10 @@ model:
   hidden_size: 192
   transformer_layers: 4
   output_index: -1
-  use_prototype_loss: true
+  pass_target: false
+  use_prototype: false
+  update_prototype: false
+  use_prototype_loss: false
 data:
   mode: 3d
   raw_dataset_root: ../../../processed_mama_nact_3d
@@ -31,7 +34,7 @@ train:
   min_lr: 0.000001
   amp: true
   seed: 2026
-  extra_loss_weight: 0.3
+  extra_loss_weight: 0.0
   max_grad_norm: 1.0
   collapse_guard: true
   collapse_ratio: 0.25
