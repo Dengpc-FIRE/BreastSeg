@@ -20,6 +20,10 @@ results_kpta_25d_net/test_visualization/masks/
 /results_kpta_25d_net/test_visualization/masks/
 results_kpta_25d_net/test_visualization/visualizations/
 results_kpta_25d_net/test_visualization/visualizations/
+ContrastModel/dataset/processed_3d_cc_tumor_heterogeneity_17ch/
+processed_cc_tumor_heterogeneity_17ch_25d/
+processed_cc_tumor_heterogeneity_17ch_2d/
+processed_cc_tumor_heterogeneity_17ch_3d_raw/
 
 # Jupyter笔记本检查点
 .ipynb_checkpoints/
