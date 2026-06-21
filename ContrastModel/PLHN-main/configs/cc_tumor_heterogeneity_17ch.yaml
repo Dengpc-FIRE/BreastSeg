@@ -24,12 +24,13 @@ data:
 train:
   epochs: 100
   batch_size: 1
-  lr: 0.0001
-  weight_decay: 0.00001
+  lr: 0.00002
+  weight_decay: 0.0001
   num_workers: 2
   early_stopping: 0
-  amp: true
+  amp: false
   seed: 2026
+  max_grad_norm: 1.0
 eval:
   threshold: 0.5
   sliding_window_overlap: 0.5

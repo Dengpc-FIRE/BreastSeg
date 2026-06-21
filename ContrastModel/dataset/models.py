@@ -180,8 +180,10 @@ class ProbOutputWrapper(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         output = self.model(x)
-        logits, _ = extract_logits(output)
-        return _logit_from_prob(logits)
+        prob, _ = extract_logits(output)
+        if not torch.isfinite(prob).all():
+            prob = torch.nan_to_num(prob, nan=0.5, posinf=1.0 - 1e-4, neginf=1e-4)
+        return _logit_from_prob(prob)
 
 
 class PDPNetWrapper(nn.Module):
