@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import importlib.machinery
 import sys
+import types
 from pathlib import Path
 from typing import Any, Dict, Iterator, Tuple
 
@@ -34,6 +36,36 @@ def isolated_import_prefixes(*prefixes: str) -> Iterator[None]:
     saved = {name: module for name, module in sys.modules.items() if matches(name)}
     for name in list(saved):
         del sys.modules[name]
+    try:
+        yield
+    finally:
+        for name in [name for name in sys.modules if matches(name)]:
+            del sys.modules[name]
+        sys.modules.update(saved)
+
+
+@contextlib.contextmanager
+def force_local_package(package_name: str, package_dir: Path) -> Iterator[None]:
+    def matches(name: str) -> bool:
+        return name == package_name or name.startswith(f"{package_name}.")
+
+    saved = {name: module for name, module in sys.modules.items() if matches(name)}
+    for name in list(saved):
+        del sys.modules[name]
+
+    package_path = str(package_dir.resolve())
+    package = types.ModuleType(package_name)
+    package.__path__ = [package_path]
+    package.__package__ = package_name
+    package.__file__ = str((package_dir / "__init__.py").resolve())
+    package.__spec__ = importlib.machinery.ModuleSpec(
+        package_name,
+        loader=None,
+        is_package=True,
+    )
+    package.__spec__.submodule_search_locations = [package_path]
+    sys.modules[package_name] = package
+
     try:
         yield
     finally:
@@ -301,7 +333,7 @@ def _build_attention_gated(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 
 def _build_pdpnet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with isolated_import_prefixes("model"), prepend_sys_path(model_dir):
+    with force_local_package("model", model_dir / "model"), prepend_sys_path(model_dir):
         dpk = importlib.import_module("model.DPKNet")
         seg = dpk.DPKNet(channels=cfg["model"]["input_channels"])
         if not bool(cfg["model"].get("use_location_branch", False)):
