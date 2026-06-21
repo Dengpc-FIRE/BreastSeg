@@ -3,14 +3,16 @@ model:
   input_channels: 17
   out_channels: 1
   pretrained: false
-  base_channels: 32
-  hidden_size: 256
-  transformer_layers: 8
+  base_channels: 16
+  hidden_size: 192
+  transformer_layers: 4
+  output_index: -1
+  use_prototype_loss: true
 data:
   mode: 3d
   raw_dataset_root: ../../../processed_mama_nact_3d
   cache_root: ../../dataset/processed_mama_nact_3d/plhn
-  patch_size: [48, 128, 128]
+  patch_size: [16, 128, 128]
   samples_per_volume: 4
   positive_crop_prob: 0.7
   normalize: zscore
@@ -18,14 +20,25 @@ data:
   allow_missing_phases: false
 train:
   epochs: 100
-  batch_size: 8
+  batch_size: 1
   lr: 0.0001
   weight_decay: 0.00001
   num_workers: 2
-  early_stopping: 0
+  early_stopping: 30
   scheduler: reduce_on_plateau
+  scheduler_patience: 8
+  scheduler_factor: 0.5
+  min_lr: 0.000001
   amp: true
   seed: 2026
+  extra_loss_weight: 0.3
+  max_grad_norm: 1.0
+  collapse_guard: true
+  collapse_ratio: 0.25
+  collapse_min_epoch: 5
+  collapse_min_best: 0.05
+  collapse_lr_factor: 0.2
+  collapse_stop_after: 3
 eval:
   threshold: 0.5
   save_predictions: false

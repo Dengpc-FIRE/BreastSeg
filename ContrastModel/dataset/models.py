@@ -221,6 +221,30 @@ class ProbOutputWrapper(nn.Module):
         return _logit_from_prob(prob)
 
 
+class PLHNWrapper(nn.Module):
+    needs_target = True
+
+    def __init__(self, net: nn.Module, proto_loss: nn.Module | None = None, output_index: int = -1) -> None:
+        super().__init__()
+        self.net = net
+        self.proto_loss = proto_loss
+        self.output_index = output_index
+
+    def forward(self, x: torch.Tensor, target: torch.Tensor | None = None) -> Dict[str, torch.Tensor | None]:
+        output = self.net(x, target) if target is not None else self.net(x)
+        extra = None
+        if target is not None and isinstance(output, (list, tuple)) and output and isinstance(output[0], dict):
+            if self.proto_loss is not None:
+                extra = self.proto_loss(output[0], target)
+        selected = output
+        if isinstance(output, (list, tuple)):
+            selected = output[self.output_index]
+        prob, _ = extract_logits(selected)
+        if not torch.isfinite(prob).all():
+            prob = torch.nan_to_num(prob, nan=0.5, posinf=1.0 - 1e-4, neginf=1e-4)
+        return {"logits": _logit_from_prob(prob), "extra_loss": extra}
+
+
 class PDPNetWrapper(nn.Module):
     needs_target = True
 
@@ -370,10 +394,15 @@ def _build_plhn(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
             hidden_size=int(cfg["model"].get("hidden_size", 192)),
             TransformerLayerNum=int(cfg["model"].get("transformer_layers", 4)),
         )
-        output_index = cfg["model"].get("output_index")
-        return ProbOutputWrapper(
+        output_index = int(cfg["model"].get("output_index", -1))
+        proto_loss = None
+        if bool(cfg["model"].get("use_prototype_loss", True)):
+            loss_module = importlib.import_module("Model.modelv5.loss_proto")
+            proto_loss = loss_module.PixelPrototypeCELoss()
+        return PLHNWrapper(
             model,
-            output_index=None if output_index is None else int(output_index),
+            proto_loss=proto_loss,
+            output_index=output_index,
         )
 
 

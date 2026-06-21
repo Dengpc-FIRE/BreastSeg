@@ -252,7 +252,13 @@ def train_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devi
     )
     scheduler = None
     if str(cfg["train"].get("scheduler", "")).lower() == "reduce_on_plateau":
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max", patience=5, factor=0.5)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            patience=int(cfg["train"].get("scheduler_patience", 5)),
+            factor=float(cfg["train"].get("scheduler_factor", 0.5)),
+            min_lr=float(cfg["train"].get("min_lr", 0.0)),
+        )
     scaler = torch.amp.GradScaler("cuda", enabled=bool(cfg["train"].get("amp", True)) and device.type == "cuda")
 
     ckpt_dir = Path(cfg["output"]["checkpoint_dir"])
