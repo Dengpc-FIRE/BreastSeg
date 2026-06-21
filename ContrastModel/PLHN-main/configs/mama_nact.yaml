@@ -3,7 +3,7 @@ model:
   input_channels: 17
   out_channels: 1
   pretrained: false
-  base_channels: 16
+  base_channels: 32
   hidden_size: 192
   transformer_layers: 4
   output_index: -1
