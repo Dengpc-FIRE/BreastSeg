@@ -6,7 +6,7 @@ model:
   base_channels: 32
   hidden_size: 192
   transformer_layers: 4
-  output_index: -1
+  output_index: 2
   pass_target: false
   use_prototype: false
   update_prototype: false
