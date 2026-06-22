@@ -12,6 +12,9 @@ dataset:
   type: "breastdm_25d"
   img_size: 256
 
+whole_breast:
+  enabled: true
+  
 scheduler:
   enabled: true
   name: "reduce_on_plateau"
