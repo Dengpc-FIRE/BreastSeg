@@ -648,7 +648,7 @@ class PhaseDifferenceWeightingAttention(nn.Module):
         b, t, c, h, w = phase_feats.shape
         assert c == self.channels, f"PDWA expected {self.channels} channels, got {c}"
 
-        if self.disabled:
+        if self.disabled or t == 1:
             alpha = phase_feats.new_full((b, t, 1, h, w), 1.0 / float(t))
             fused = phase_feats.mean(dim=1)
             return fused, alpha, {
@@ -1176,7 +1176,10 @@ class KPTA25DNet(nn.Module):
         self.disable_kinetic_maps = bool(ablation.get("disable_kinetic_maps", False))
         self.disable_slice_context = bool(ablation.get("disable_slice_context", False)) or slice_context_mode == "none"
         self.disable_phase_attention = bool(ablation.get("disable_pixelwise_phase_attention", False)) or not phase_attention
-        self.disable_kinetic_raw_fusion = bool(ablation.get("disable_kinetic_raw_fusion", False))
+        self.disable_kinetic_raw_fusion = (
+            bool(ablation.get("disable_kinetic_raw_fusion", False))
+            or self.disable_kinetic_maps
+        )
         self.disable_transformer = bool(ablation.get("disable_transformer_bottleneck", False))
         self.disable_boundary = bool(ablation.get("disable_boundary_head", False)) or not use_boundary_head
         self.disable_uncertainty = bool(ablation.get("disable_uncertainty_head", False)) or not use_uncertainty_head
