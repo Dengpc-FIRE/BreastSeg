@@ -52,6 +52,7 @@ def make_dataset(cfg: Dict[str, Any], split: str, train: bool = False):
             path,
             image_size=as_tuple(data_cfg.get("image_size", [256, 256]), 2),
             normalize=data_cfg.get("normalize", "zscore"),
+            input_phase_indices=data_cfg.get("input_phase_indices"),
         )
 
     volumes = BreastDM3DVolumes(
@@ -62,6 +63,7 @@ def make_dataset(cfg: Dict[str, Any], split: str, train: bool = False):
         label_phase=data_cfg.get("label_phase"),
         normalize=data_cfg.get("normalize", "zscore"),
         allow_missing_phases=bool(data_cfg.get("allow_missing_phases", False)),
+        input_phase_indices=data_cfg.get("input_phase_indices"),
     )
     if train:
         return BreastDM3DPatches(
@@ -365,7 +367,23 @@ def train_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devi
 def _load_model_for_test(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], checkpoint: str | Path, device: torch.device):
     model = build_model(model_key, cfg, model_dir).to(device)
     state = torch.load(checkpoint, map_location=device)
-    model.load_state_dict(state.get("model_state", state), strict=False)
+    state_dict = state.get("model_state", state)
+    load_result = model.load_state_dict(state_dict, strict=False)
+    missing = list(load_result.missing_keys)
+    unexpected = list(load_result.unexpected_keys)
+    allow_partial = bool(cfg.get("eval", {}).get("allow_partial_checkpoint", False))
+    if (missing or unexpected) and not allow_partial:
+        preview_missing = ", ".join(missing[:8])
+        preview_unexpected = ", ".join(unexpected[:8])
+        raise RuntimeError(
+            "Checkpoint does not match the configured model architecture. "
+            "This usually means the config was changed after training, or an "
+            "old checkpoint is being tested with a new model. "
+            f"missing_keys={len(missing)} [{preview_missing}], "
+            f"unexpected_keys={len(unexpected)} [{preview_unexpected}]. "
+            "Retrain with the current config, or set eval.allow_partial_checkpoint: true "
+            "only if this mismatch is intentional."
+        )
     return model
 
 
@@ -398,7 +416,13 @@ def _save_2d_predictions(
                 Image.fromarray(pred).save(out_dir / f"{sample_id}.png")
 
 
-def test_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], device: torch.device, checkpoint: str | Path | None = None) -> Dict[str, float]:
+def test_model(
+    model_dir: str | Path,
+    model_key: str,
+    cfg: Dict[str, Any],
+    device: torch.device,
+    checkpoint: str | Path | None = None,
+) -> Dict[str, float]:
     ckpt = Path(checkpoint) if checkpoint else Path(cfg["output"]["checkpoint_dir"]) / "best_model.pth"
     if not ckpt.exists():
         raise FileNotFoundError(f"Checkpoint not found: {ckpt}")
@@ -471,18 +495,18 @@ def _apply_cli_overrides(cfg: Dict[str, Any], args: argparse.Namespace) -> None:
         cfg["train"]["amp"] = args.amp
 
 
-def run_train_cli(model_dir: str | Path, model_key: str) -> None:
+def run_train_cli(model_dir: str | Path, model_key: str, default_config_name: str = "breastdm_17ch.yaml") -> None:
     model_dir = Path(model_dir).resolve()
-    args = _parse_args(model_dir / "configs" / "breastdm_17ch.yaml")
+    args = _parse_args(model_dir / "configs" / default_config_name)
     cfg = load_config(args.config, model_dir=model_dir, model_key=model_key)
     _apply_cli_overrides(cfg, args)
     device = select_device(args.device)
     train_model(model_dir, model_key, cfg, device)
 
 
-def run_test_cli(model_dir: str | Path, model_key: str) -> None:
+def run_test_cli(model_dir: str | Path, model_key: str, default_config_name: str = "breastdm_17ch.yaml") -> None:
     model_dir = Path(model_dir).resolve()
-    args = _parse_args(model_dir / "configs" / "breastdm_17ch.yaml")
+    args = _parse_args(model_dir / "configs" / default_config_name)
     cfg = load_config(args.config, model_dir=model_dir, model_key=model_key)
     _apply_cli_overrides(cfg, args)
     device = select_device(args.device)

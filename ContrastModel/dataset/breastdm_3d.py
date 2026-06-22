@@ -174,6 +174,16 @@ def build_or_load_volume(
     return {"image": image.astype(np.float32), "mask": mask.astype(np.float32), "id": patient_id}
 
 
+def _select_input_phases(image: np.ndarray, input_phase_indices: Sequence[int] | None) -> np.ndarray:
+    if input_phase_indices is None:
+        return image
+    indices = [int(index) for index in input_phase_indices]
+    valid = [idx for idx in indices if 0 <= idx < image.shape[0]]
+    if len(valid) != len(indices):
+        raise ValueError(f"Invalid input_phase_indices={indices} for image with {image.shape[0]} channels")
+    return image[valid]
+
+
 class BreastDM3DVolumes(Dataset):
     """Builds [17, D, H, W] patient volumes from raw BreastDM patient folders."""
 
@@ -186,6 +196,7 @@ class BreastDM3DVolumes(Dataset):
         label_phase: str | None = None,
         normalize: str = "zscore",
         allow_missing_phases: bool = False,
+        input_phase_indices: Sequence[int] | None = None,
     ) -> None:
         self.raw_dataset_root = Path(raw_dataset_root)
         self.split = split
@@ -194,6 +205,11 @@ class BreastDM3DVolumes(Dataset):
         self.label_phase = label_phase
         self.normalize = normalize
         self.allow_missing_phases = allow_missing_phases
+        self.input_phase_indices = (
+            [int(index) for index in input_phase_indices]
+            if input_phase_indices is not None
+            else None
+        )
         images_root = self.raw_dataset_root / split / "images"
         if not images_root.exists():
             raise FileNotFoundError(f"3D images split directory not found: {images_root}")
@@ -217,7 +233,7 @@ class BreastDM3DVolumes(Dataset):
             self.allow_missing_phases,
         )
         return {
-            "image": torch.from_numpy(item["image"]),
+            "image": torch.from_numpy(_select_input_phases(item["image"], self.input_phase_indices)),
             "mask": torch.from_numpy(item["mask"]),
             "id": str(item["id"]),
         }

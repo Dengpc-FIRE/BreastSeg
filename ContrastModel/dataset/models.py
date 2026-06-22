@@ -205,6 +205,99 @@ class UNetPlusPlus2D(nn.Module):
         return self.final(x0_4)
 
 
+class AttentionGate2D(nn.Module):
+    """Classic Attention U-Net gate for one encoder skip connection."""
+
+    def __init__(self, skip_channels: int, gating_channels: int, inter_channels: int | None = None) -> None:
+        super().__init__()
+        inter_channels = inter_channels or max(skip_channels // 2, 1)
+        self.theta_x = nn.Sequential(
+            nn.Conv2d(skip_channels, inter_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(inter_channels),
+        )
+        self.phi_g = nn.Sequential(
+            nn.Conv2d(gating_channels, inter_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(inter_channels),
+        )
+        self.psi = nn.Sequential(
+            nn.Conv2d(inter_channels, 1, kernel_size=1, bias=True),
+            nn.Sigmoid(),
+        )
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, skip: torch.Tensor, gating: torch.Tensor) -> torch.Tensor:
+        if gating.shape[-2:] != skip.shape[-2:]:
+            gating = F.interpolate(gating, size=skip.shape[-2:], mode="bilinear", align_corners=False)
+        attention = self.psi(self.relu(self.theta_x(skip) + self.phi_g(gating)))
+        return skip * attention
+
+
+class AttentionUpBlock2D(nn.Module):
+    """Upsample decoder features, gate the skip feature, and fuse both."""
+
+    def __init__(
+        self,
+        decoder_channels: int,
+        skip_channels: int,
+        out_channels: int,
+        bilinear: bool = False,
+    ) -> None:
+        super().__init__()
+        if bilinear:
+            self.up = nn.Sequential(
+                nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+                nn.Conv2d(decoder_channels, out_channels, kernel_size=1),
+            )
+        else:
+            self.up = nn.ConvTranspose2d(decoder_channels, out_channels, kernel_size=2, stride=2)
+        self.gate = AttentionGate2D(skip_channels=skip_channels, gating_channels=out_channels)
+        self.conv = ConvBlock2D(out_channels + skip_channels, out_channels)
+
+    def forward(self, decoder: torch.Tensor, skip: torch.Tensor) -> torch.Tensor:
+        decoder = self.up(decoder)
+        if decoder.shape[-2:] != skip.shape[-2:]:
+            decoder = F.interpolate(decoder, size=skip.shape[-2:], mode="bilinear", align_corners=False)
+        gated_skip = self.gate(skip, decoder)
+        return self.conv(torch.cat([gated_skip, decoder], dim=1))
+
+
+class AttentionUNet2D(nn.Module):
+    """2D Attention U-Net with capacity matched to the standard U-Net baseline."""
+
+    def __init__(
+        self,
+        in_channels: int = 17,
+        out_channels: int = 1,
+        base_channels: int = 64,
+        bilinear: bool = False,
+    ) -> None:
+        super().__init__()
+        c = int(base_channels)
+        self.enc0 = ConvBlock2D(in_channels, c)
+        self.enc1 = ConvBlock2D(c, c * 2)
+        self.enc2 = ConvBlock2D(c * 2, c * 4)
+        self.enc3 = ConvBlock2D(c * 4, c * 8)
+        self.bottleneck = ConvBlock2D(c * 8, c * 16)
+        self.pool = nn.MaxPool2d(2)
+        self.up3 = AttentionUpBlock2D(c * 16, c * 8, c * 8, bilinear=bilinear)
+        self.up2 = AttentionUpBlock2D(c * 8, c * 4, c * 4, bilinear=bilinear)
+        self.up1 = AttentionUpBlock2D(c * 4, c * 2, c * 2, bilinear=bilinear)
+        self.up0 = AttentionUpBlock2D(c * 2, c, c, bilinear=bilinear)
+        self.final = nn.Conv2d(c, out_channels, kernel_size=1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x0 = self.enc0(x)
+        x1 = self.enc1(self.pool(x0))
+        x2 = self.enc2(self.pool(x1))
+        x3 = self.enc3(self.pool(x2))
+        x4 = self.bottleneck(self.pool(x3))
+        x = self.up3(x4, x3)
+        x = self.up2(x, x2)
+        x = self.up1(x, x1)
+        x = self.up0(x, x0)
+        return self.final(x)
+
+
 class ProbOutputWrapper(nn.Module):
     def __init__(self, model: nn.Module, output_index: int | None = None) -> None:
         super().__init__()
@@ -346,6 +439,13 @@ def _build_msdahnet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 def _build_attention_gated(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
     with prepend_sys_path(model_dir):
         network = cfg["model"].get("network", "unet_nonlocal")
+        if network in {"attention_unet", "att_unet", "attention_gate_unet"}:
+            return AttentionUNet2D(
+                in_channels=cfg["model"]["input_channels"],
+                out_channels=cfg["model"]["out_channels"],
+                base_channels=int(cfg["model"].get("base_channels", 64)),
+                bilinear=bool(cfg["model"].get("bilinear", False)),
+            )
         common_kwargs = {
             "n_classes": cfg["model"]["out_channels"],
             "in_channels": cfg["model"]["input_channels"],

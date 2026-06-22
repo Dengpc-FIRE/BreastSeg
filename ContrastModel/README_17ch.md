@@ -32,11 +32,27 @@ train_17ch.py
 test_17ch.py
 ```
 
+Each model also has an independent pre-contrast-only setting:
+
+```text
+configs/breastdm_preonly.yaml
+train_preonly.py
+test_preonly.py
+```
+
+The pre-only config keeps the original 17-channel processed data on disk, but
+uses `data.input_phase_indices: [0]` and `model.input_channels: 1`, so the model
+sees only the VIBRANT/pre-contrast channel. Outputs are written to separate
+`checkpoints_preonly/`, `test_results_preonly/`, and
+`training_log_preonly.csv` paths.
+
 Example:
 
 ```bash
 python ContrastModel/Pytorch-UNet-master/train_17ch.py
 python ContrastModel/Pytorch-UNet-master/test_17ch.py
+python ContrastModel/Pytorch-UNet-master/train_preonly.py
+python ContrastModel/Pytorch-UNet-master/test_preonly.py
 ```
 
 Common CLI overrides:

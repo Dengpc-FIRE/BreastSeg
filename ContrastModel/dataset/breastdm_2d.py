@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -67,12 +67,18 @@ class BreastDM2DSlices(Dataset):
         split_root: str | Path,
         image_size: Tuple[int, int] | None = None,
         normalize: str = "zscore",
+        input_phase_indices: Sequence[int] | None = None,
     ) -> None:
         self.split_root = Path(split_root)
         self.data_dir = self.split_root / "data"
         self.mask_dir = self.split_root / "GT"
         self.image_size = tuple(image_size) if image_size is not None else None
         self.normalize = normalize
+        self.input_phase_indices = (
+            [int(index) for index in input_phase_indices]
+            if input_phase_indices is not None
+            else None
+        )
 
         if not self.data_dir.exists():
             raise FileNotFoundError(f"2D data directory not found: {self.data_dir}")
@@ -105,6 +111,14 @@ class BreastDM2DSlices(Dataset):
             image = np.transpose(image, (2, 0, 1))
         elif image.shape[0] != 17:
             raise ValueError(f"Expected 17 channels in {image_path}, got shape {image.shape}")
+        if self.input_phase_indices is not None:
+            valid = [idx for idx in self.input_phase_indices if 0 <= idx < image.shape[0]]
+            if len(valid) != len(self.input_phase_indices):
+                raise ValueError(
+                    f"Invalid input_phase_indices={self.input_phase_indices} "
+                    f"for {image.shape[0]} channels in {image_path}"
+                )
+            image = image[valid]
 
         image = _resize_image(image, self.image_size)
         image = _normalize_channels(image, self.normalize)
@@ -115,4 +129,3 @@ class BreastDM2DSlices(Dataset):
             "mask": torch.from_numpy(mask[None].astype(np.float32)),
             "id": sample_id,
         }
-

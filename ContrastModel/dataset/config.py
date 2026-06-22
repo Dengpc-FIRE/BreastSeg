@@ -44,6 +44,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "raw_dataset_root": "../../../seg",
         "cache_root": "../../dataset/processed_3d_17ch",
         "phase_names": PHASE_NAMES,
+        "input_phase_indices": None,
         "label_phase": None,
         "image_size": [256, 256],
         "patch_size": [48, 128, 128],

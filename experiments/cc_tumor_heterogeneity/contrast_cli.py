@@ -55,4 +55,3 @@ def run_test_cli(model_dir: str | Path, model_key: str) -> None:
     cfg = load_config(args.config, model_dir=model_dir, model_key=model_key)
     apply_overrides(cfg, args)
     test_model(model_dir, model_key, cfg, select_device(args.device), checkpoint=args.checkpoint)
-

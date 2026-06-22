@@ -51,9 +51,28 @@ def _patient_ids(raw_root: Path, split: str) -> List[str]:
     return sorted([p.name for p in images_root.iterdir() if p.is_dir()])
 
 
-def _write_case(item: Dict[str, Any], case_id: str, image_dir: Path, label_dir: Path | None) -> None:
+def _select_input_phases(image: np.ndarray, input_phase_indices) -> np.ndarray:
+    if input_phase_indices is None:
+        return image
+    indices = [int(index) for index in input_phase_indices]
+    valid = [idx for idx in indices if 0 <= idx < image.shape[0]]
+    if len(valid) != len(indices):
+        raise ValueError(f"Invalid input_phase_indices={indices} for image with {image.shape[0]} channels")
+    return image[valid]
+
+
+def _selected_channel_names(phase_names: List[str], input_phase_indices) -> Dict[str, str]:
+    if input_phase_indices is None:
+        selected = list(phase_names)
+    else:
+        selected = [phase_names[int(index)] for index in input_phase_indices]
+    return {str(i): name for i, name in enumerate(selected)}
+
+
+def _write_case(item: Dict[str, Any], case_id: str, image_dir: Path, label_dir: Path | None, input_phase_indices=None) -> None:
     image = item["image"]
     mask = item["mask"]
+    image = _select_input_phases(image, input_phase_indices)
     for c in range(image.shape[0]):
         _write_nifti(image[c], image_dir / f"{case_id}_{c:04d}.nii.gz", is_label=False)
     if label_dir is not None:
@@ -77,6 +96,7 @@ def prepare_dataset(cfg: Dict[str, Any], model_dir: str | Path) -> Path:
     raw_root = Path(cfg["data"]["raw_dataset_root"])
     cache_root = Path(cfg["data"]["cache_root"])
     phase_names = cfg["data"]["phase_names"]
+    input_phase_indices = cfg["data"].get("input_phase_indices")
     label_phase = cfg["data"].get("label_phase")
     normalize = cfg["data"].get("normalize", "zscore")
     allow_missing = bool(cfg["data"].get("allow_missing_phases", False))
@@ -87,17 +107,17 @@ def prepare_dataset(cfg: Dict[str, Any], model_dir: str | Path) -> Path:
         for patient_id in _patient_ids(raw_root, split):
             case_id = f"{split}_{patient_id}"
             item = build_or_load_volume(raw_root, split, patient_id, cache_root, phase_names, label_phase, normalize, allow_missing)
-            _write_case(item, case_id, images_tr, labels_tr)
+            _write_case(item, case_id, images_tr, labels_tr, input_phase_indices=input_phase_indices)
             training_cases.append(case_id)
 
     for patient_id in _patient_ids(raw_root, "test"):
         case_id = f"test_{patient_id}"
         item = build_or_load_volume(raw_root, "test", patient_id, cache_root, phase_names, label_phase, normalize, allow_missing)
-        _write_case(item, case_id, images_ts, labels_ts)
+        _write_case(item, case_id, images_ts, labels_ts, input_phase_indices=input_phase_indices)
         test_cases.append(case_id)
 
     dataset_json = {
-        "channel_names": {str(i): name for i, name in enumerate(phase_names)},
+        "channel_names": _selected_channel_names(list(phase_names), input_phase_indices),
         "labels": {"background": 0, "tumor": 1},
         "numTraining": len(training_cases),
         "file_ending": ".nii.gz",
@@ -121,4 +141,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,0 +1,54 @@
+model:
+  name: nnunet
+  input_channels: 1
+  out_channels: 1
+  pretrained: false
+data:
+  mode: 3d
+  train_path: ../../../processed_17ch_dce/train
+  val_path: ../../../processed_17ch_dce/val
+  test_path: ../../../processed_17ch_dce/test
+  raw_dataset_root: ../../../seg
+  cache_root: ../../dataset/processed_3d_preonly/nnunet
+  patch_size:
+  - 48
+  - 128
+  - 128
+  normalize: zscore
+  label_phase: null
+  allow_missing_phases: false
+  input_phase_indices:
+  - 0
+  phase_names:
+  - VIBRANT
+train:
+  epochs: 100
+  batch_size: 1
+  lr: 0.0001
+  weight_decay: 1.0e-05
+  num_workers: 4
+  early_stopping: 0
+  scheduler: poly
+  amp: true
+  seed: 2026
+eval:
+  threshold: 0.5
+  save_predictions: true
+output:
+  checkpoint_dir: results_preonly
+  test_dir: test_results_preonly
+  log_file: training_log_preonly.csv
+nnunet:
+  dataset_id: 502
+  dataset_name: BreastDMPreOnly
+  raw_dir: raw
+  preprocessed_dir: preprocessed
+  results_dir: results_preonly
+  configuration: 3d_fullres
+  trainer: nnUNetTrainerBreastDM17
+  plans: nnUNetPlans
+  fold: 0
+  num_processes: 4
+  verify_dataset_integrity: false
+  clean: false
+  checkpoint_name: checkpoint_best.pth
