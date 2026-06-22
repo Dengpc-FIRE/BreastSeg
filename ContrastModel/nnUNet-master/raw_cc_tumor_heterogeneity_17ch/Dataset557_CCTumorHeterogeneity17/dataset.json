@@ -1,0 +1,29 @@
+{
+  "channel_names": {
+    "0": "PRE",
+    "1": "POST1",
+    "2": "POST2",
+    "3": "POST3",
+    "4": "POST4",
+    "5": "POST5",
+    "6": "POST6",
+    "7": "POST7",
+    "8": "POST8",
+    "9": "SUB1",
+    "10": "SUB2",
+    "11": "SUB3",
+    "12": "SUB4",
+    "13": "SUB5",
+    "14": "SUB6",
+    "15": "SUB7",
+    "16": "SUB8"
+  },
+  "labels": {
+    "background": 0,
+    "tumor": 1
+  },
+  "numTraining": 54,
+  "file_ending": ".nii.gz",
+  "name": "CCTumorHeterogeneity17",
+  "description": "17-channel BreastDM DCE dataset for nnU-Net v2"
+}

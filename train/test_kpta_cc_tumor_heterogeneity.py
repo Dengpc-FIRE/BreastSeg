@@ -20,7 +20,7 @@ from train.train_config import build_model_from_config, checkpoint_name_from_con
 from train.train_kpta import build_dataset  # noqa: E402
 
 
-DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "kpta_25d_net_cc_tumor_heterogeneity_17ch.yaml"
+DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "kpta_25d_net_cc_tumor_heterogeneity_17ch-v1.yaml"
 
 
 def parse_args() -> argparse.Namespace:

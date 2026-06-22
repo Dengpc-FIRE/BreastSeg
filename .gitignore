@@ -15,7 +15,7 @@ PatientDCEandVFAFiles.zip
 /results_kpta_25d_net_k5/test_visualization/visualizations/
 /results_kpta_25d_net_k5/test_visualization/probabilities/
 results_kpta_25d_net/test_visualization/probabilities/
-
+nnUNet/
 results_kpta_25d_net_k5/test_visualization/visualizations/
 /results_kpta_25d_net_k5/test_visualization/
 results_kpta_25d_net/test_visualization/masks/
