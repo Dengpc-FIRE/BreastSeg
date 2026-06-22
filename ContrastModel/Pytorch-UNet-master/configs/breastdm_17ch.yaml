@@ -23,10 +23,11 @@ train:
   amp: true
   seed: 2026
 eval:
-  threshold: 0.5
+  threshold: 0.3
   save_predictions: false
 output:
   checkpoint_dir: checkpoints
   test_dir: test_results
   log_file: training_log.csv
-
+whole_breast:
+  enabled: true

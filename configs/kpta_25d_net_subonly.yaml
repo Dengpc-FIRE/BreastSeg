@@ -14,6 +14,8 @@ early_stopping:
   min_delta: 0.0001
   start_epoch: 40
 
+whole_breast:
+  enabled: true
 
 dataset:
   type: "breastdm_25d"
