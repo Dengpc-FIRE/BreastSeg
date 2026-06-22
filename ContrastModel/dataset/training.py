@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -16,6 +17,13 @@ from .breastdm_3d import BreastDM3DPatches, BreastDM3DVolumes
 from .config import as_tuple, load_config, select_device, set_seed
 from .metrics import compute_case_metrics, summarize_metrics, write_metrics_csv, write_summary
 from .models import align_logits, build_model, forward_model
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from inference.whole_breast_constraint import build_whole_breast_constraint  # noqa: E402
 
 
 def dice_loss_with_logits(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -147,7 +155,13 @@ def train_one_epoch(model, loader, optimizer, scaler, device, cfg) -> float:
 
 
 @torch.no_grad()
-def evaluate_loader(model, loader, device, cfg) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
+def evaluate_loader(
+    model,
+    loader,
+    device,
+    cfg,
+    whole_breast_constraint=None,
+) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
     model.eval()
     threshold = float(cfg["eval"].get("threshold", 0.5))
     rows: List[Dict[str, float]] = []
@@ -156,7 +170,14 @@ def evaluate_loader(model, loader, device, cfg) -> Tuple[Dict[str, float], List[
         model_target = None if getattr(model, "needs_target", False) else masks
         logits, _ = forward_model(model, images, model_target)
         logits = align_logits(logits, masks)
-        probs = torch.sigmoid(logits).detach().cpu().numpy()
+        probs_tensor = torch.sigmoid(logits)
+        if whole_breast_constraint is not None:
+            probs_tensor, _ = whole_breast_constraint.constrain_probabilities(
+                probs_tensor,
+                ids,
+                loader.dataset,
+            )
+        probs = probs_tensor.detach().cpu().numpy()
         targets = masks.detach().cpu().numpy()
         for i, sample_id in enumerate(ids):
             pred = probs[i, 0] >= threshold
@@ -243,6 +264,13 @@ def train_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devi
     train_loader = make_loader(train_ds, cfg, shuffle=True)
     mode = str(cfg["data"].get("mode", "2d")).lower()
     val_loader = None if mode == "3d" else make_loader(val_ds, cfg, shuffle=False)
+    whole_breast_constraint = None
+    if mode == "2d":
+        whole_breast_constraint = build_whole_breast_constraint(
+            cfg,
+            device=device,
+            output_path=Path(cfg["output"]["test_dir"]).parent,
+        )
 
     model = build_model(model_key, cfg, model_dir).to(device)
     optimizer = torch.optim.AdamW(
@@ -278,7 +306,13 @@ def train_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devi
         if mode == "3d":
             val_summary, _ = evaluate_3d(model, val_ds, device, cfg)
         else:
-            val_summary, _ = evaluate_loader(model, val_loader, device, cfg)
+            val_summary, _ = evaluate_loader(
+                model,
+                val_loader,
+                device,
+                cfg,
+                whole_breast_constraint=whole_breast_constraint,
+            )
         score = float(val_summary["mean_dice"])
         if scheduler is not None:
             scheduler.step(score)
@@ -335,7 +369,15 @@ def _load_model_for_test(model_dir: str | Path, model_key: str, cfg: Dict[str, A
     return model
 
 
-def _save_2d_predictions(rows: List[Dict[str, float]], loader, model, device, cfg, out_dir: Path) -> None:
+def _save_2d_predictions(
+    rows: List[Dict[str, float]],
+    loader,
+    model,
+    device,
+    cfg,
+    out_dir: Path,
+    whole_breast_constraint=None,
+) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     threshold = float(cfg["eval"].get("threshold", 0.5))
     with torch.no_grad():
@@ -344,7 +386,14 @@ def _save_2d_predictions(rows: List[Dict[str, float]], loader, model, device, cf
             model_target = None if getattr(model, "needs_target", False) else masks
             logits, _ = forward_model(model, images, model_target)
             logits = align_logits(logits, masks)
-            preds = (torch.sigmoid(logits).detach().cpu().numpy()[:, 0] >= threshold).astype(np.uint8) * 255
+            probs_tensor = torch.sigmoid(logits)
+            if whole_breast_constraint is not None:
+                probs_tensor, _ = whole_breast_constraint.constrain_probabilities(
+                    probs_tensor,
+                    ids,
+                    loader.dataset,
+                )
+            preds = (probs_tensor.detach().cpu().numpy()[:, 0] >= threshold).astype(np.uint8) * 255
             for pred, sample_id in zip(preds, ids):
                 Image.fromarray(pred).save(out_dir / f"{sample_id}.png")
 
@@ -356,13 +405,36 @@ def test_model(model_dir: str | Path, model_key: str, cfg: Dict[str, Any], devic
     model = _load_model_for_test(model_dir, model_key, cfg, ckpt, device)
     mode = str(cfg["data"].get("mode", "2d")).lower()
     test_ds = make_dataset(cfg, "test", train=False)
+    whole_breast_constraint = None
+    if mode == "2d":
+        whole_breast_constraint = build_whole_breast_constraint(
+            cfg,
+            device=device,
+            output_path=Path(cfg["output"]["test_dir"]).parent,
+        )
+    elif bool(cfg.get("whole_breast", {}).get("enabled", False)):
+        raise ValueError("whole_breast.enabled is currently supported only for ContrastModel 2D tests.")
     if mode == "3d":
         summary, rows = evaluate_3d(model, test_ds, device, cfg)
     else:
         loader = make_loader(test_ds, cfg, shuffle=False)
-        summary, rows = evaluate_loader(model, loader, device, cfg)
+        summary, rows = evaluate_loader(
+            model,
+            loader,
+            device,
+            cfg,
+            whole_breast_constraint=whole_breast_constraint,
+        )
         if bool(cfg["eval"].get("save_predictions", False)):
-            _save_2d_predictions(rows, loader, model, device, cfg, Path(cfg["output"]["test_dir"]) / "predictions")
+            _save_2d_predictions(
+                rows,
+                loader,
+                model,
+                device,
+                cfg,
+                Path(cfg["output"]["test_dir"]) / "predictions",
+                whole_breast_constraint=whole_breast_constraint,
+            )
 
     test_dir = Path(cfg["output"]["test_dir"])
     write_metrics_csv(test_dir / "metrics.csv", rows)

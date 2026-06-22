@@ -8,15 +8,19 @@ from typing import Dict, List
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 MODEL_DIR = Path(__file__).resolve().parent
 CONTRAST_ROOT = MODEL_DIR.parent
+PROJECT_ROOT = MODEL_DIR.parents[1]
 sys.path.insert(0, str(CONTRAST_ROOT))
 sys.path.insert(0, str(MODEL_DIR))
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from dataset.config import load_config, select_device
 from dataset.metrics import compute_case_metrics, summarize_metrics, write_metrics_csv, write_summary
 from prepare_17ch_nnunet import prepare_dataset
+from inference.whole_breast_constraint import WholeBreastConstraint
 
 
 try:
@@ -74,6 +78,52 @@ def _compute_metrics(pred_dir: Path, labels_dir: Path, out_dir: Path) -> Dict[st
     return summary
 
 
+def _resize_mask_like(mask: np.ndarray, target_shape: tuple[int, ...]) -> np.ndarray:
+    if tuple(mask.shape) == tuple(target_shape):
+        return mask
+    mask_tensor = torch.from_numpy(mask[None, None].astype(np.float32))
+    resized = F.interpolate(mask_tensor, size=target_shape, mode="nearest")
+    return resized[0, 0].numpy() > 0.5
+
+
+def _compute_metrics_with_whole_breast(
+    pred_dir: Path,
+    labels_dir: Path,
+    images_dir: Path,
+    out_dir: Path,
+    cfg,
+    device: torch.device,
+) -> Dict[str, float]:
+    rows: List[Dict[str, float]] = []
+    constraint = WholeBreastConstraint(
+        cfg.get("whole_breast", {}),
+        device=device,
+        output_path=out_dir.parent,
+    )
+    for label_path in sorted(labels_dir.glob("*.nii.gz")):
+        case_id = label_path.name.replace(".nii.gz", "")
+        pred_path = pred_dir / label_path.name
+        pre_path = images_dir / f"{case_id}_0000.nii.gz"
+        if not pred_path.exists():
+            raise FileNotFoundError(f"Missing nnU-Net prediction for {label_path.name}: {pred_path}")
+        if not pre_path.exists():
+            raise FileNotFoundError(f"Missing nnU-Net pre-contrast image for {case_id}: {pre_path}")
+        pred = _read_nifti(pred_path) > 0
+        target = _read_nifti(label_path) > 0
+        pre_volume = _read_nifti(pre_path).astype(np.float32)
+        breast_mask = constraint._predict_volume(pre_volume)
+        breast_mask = constraint._postprocess_and_validate(breast_mask, case_id) > 0
+        breast_mask = _resize_mask_like(breast_mask, pred.shape)
+        pred = np.logical_and(pred, breast_mask)
+        metric = compute_case_metrics(pred, target)
+        metric["id"] = case_id
+        rows.append(metric)
+    summary = summarize_metrics(rows)
+    write_metrics_csv(out_dir / "metrics.csv", rows)
+    write_summary(out_dir / "summary.txt", summary)
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default=str(MODEL_DIR / "configs" / "breastdm_17ch.yaml"))
@@ -124,11 +174,21 @@ def main() -> None:
             num_processes_segmentation_export=int(nn_cfg.get("num_processes", 4)),
         )
 
-    summary = _compute_metrics(pred_dir, _dataset_folder(cfg) / "labelsTs", out_dir)
+    dataset_folder = _dataset_folder(cfg)
+    if bool(cfg.get("whole_breast", {}).get("enabled", False)):
+        summary = _compute_metrics_with_whole_breast(
+            pred_dir,
+            dataset_folder / "labelsTs",
+            dataset_folder / "imagesTs",
+            out_dir,
+            cfg,
+            select_device(args.device),
+        )
+    else:
+        summary = _compute_metrics(pred_dir, dataset_folder / "labelsTs", out_dir)
     for key in ["mean_dice", "mean_iou", "mean_hd95", "mean_sensitivity", "mean_precision", "mean_accuracy"]:
         print(f"{key}: {summary[key]:.6f}")
 
 
 if __name__ == "__main__":
     main()
-
