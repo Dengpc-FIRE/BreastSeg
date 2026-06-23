@@ -3,6 +3,22 @@ model:
   input_channels: 1
   out_channels: 1
   pretrained: false
+  dims:
+  - 16
+  - 32
+  - 64
+  - 128
+  depths:
+  - 1
+  - 1
+  - 2
+  - 2
+  - 2
+  kernels:
+  - 3
+  - 3
+  - 5
+  embed_dim: 256
   variant: mobileuvit
 data:
   mode: 2d
@@ -25,6 +41,7 @@ train:
   early_stopping: 0
   scheduler: reduce_on_plateau
   amp: true
+  max_grad_norm: 1.0
   seed: 2026
 eval:
   threshold: 0.5

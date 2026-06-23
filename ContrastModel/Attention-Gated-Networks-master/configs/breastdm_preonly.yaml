@@ -4,7 +4,7 @@ model:
   out_channels: 1
   pretrained: false
   network: attention_unet
-  base_channels: 64
+  base_channels: 32
   bilinear: false
 data:
   mode: 2d
@@ -17,7 +17,7 @@ data:
   - 256
   normalize: zscore
   input_phase_indices:
-  - 2
+  - 0
 train:
   epochs: 100
   batch_size: 4
@@ -27,6 +27,7 @@ train:
   early_stopping: 0
   scheduler: reduce_on_plateau
   amp: true
+  max_grad_norm: 1.0
   seed: 2026
 eval:
   threshold: 0.5

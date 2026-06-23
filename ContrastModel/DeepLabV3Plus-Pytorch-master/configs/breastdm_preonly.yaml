@@ -3,8 +3,9 @@ model:
   input_channels: 1
   out_channels: 1
   pretrained: false
-  arch: deeplabv3plus_mobilenet
-  output_stride: 16
+  arch: deeplabv3plus_resnet50
+  pretrained_backbone: false
+  output_stride: 8
 data:
   mode: 2d
   train_path: ../../../processed_17ch_dce/train
@@ -26,6 +27,7 @@ train:
   early_stopping: 0
   scheduler: reduce_on_plateau
   amp: true
+  max_grad_norm: 1.0
   seed: 2026
 eval:
   threshold: 0.5

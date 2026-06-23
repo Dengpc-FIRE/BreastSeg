@@ -290,8 +290,12 @@ class MobileUViT(nn.Module):
         self.head = nn.Conv2d(dims[0], out_channel, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x):
-        if x.size()[1] == 1:
-            x = x.repeat(1, 3, 1, 1)
+        expected_channels = self.patch_embeddings.stem[0].in_channels
+        if x.size(1) != expected_channels:
+            raise ValueError(
+                f"MobileUViT expected {expected_channels} input channels, got {x.size(1)}. "
+                "Check model.input_channels and data.input_phase_indices in the config."
+            )
         x, skip = self.patch_embeddings(x)
         x = self.down(x)
 
@@ -319,3 +323,4 @@ def mobileuvit(inch=3, dims=[16, 32, 64, 128], depths=[1, 1, 3, 3, 3], kernels=[
 
 def mobileuvit_l(inch=3, dims=[32, 64, 128, 256], depths=[1, 1, 3, 3, 4], kernels=[3, 3, 7], embed_dim=512, out_channel=1):
     return MobileUViT(inch=inch, dims=dims, depths=depths, kernels=kernels, embed_dim=embed_dim, out_channel=out_channel)
+

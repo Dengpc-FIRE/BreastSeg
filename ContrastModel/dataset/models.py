@@ -419,8 +419,14 @@ def _build_mobile_uvit(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
     with prepend_sys_path(model_dir):
         module = importlib.import_module("network.MobileUViT")
         factory = getattr(module, cfg["model"].get("variant", "mobileuvit"))
-        return factory(inch=cfg["model"]["input_channels"], out_channel=cfg["model"]["out_channels"])
-
+        kwargs = {
+            "inch": cfg["model"]["input_channels"],
+            "out_channel": cfg["model"]["out_channels"],
+        }
+        for key in ("dims", "depths", "kernels", "embed_dim"):
+            if key in cfg["model"]:
+                kwargs[key] = cfg["model"][key]
+        return factory(**kwargs)
 
 def _build_emcad(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
     with prepend_sys_path(model_dir):
@@ -438,14 +444,16 @@ def _build_deeplab(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
     with prepend_sys_path(model_dir):
         module = importlib.import_module("network.modeling")
         arch = cfg["model"].get("arch", "deeplabv3plus_mobilenet")
+        pretrained_backbone = bool(
+            cfg["model"].get("pretrained_backbone", cfg["model"].get("pretrained", False))
+        )
         model = getattr(module, arch)(
             num_classes=cfg["model"]["out_channels"],
             output_stride=int(cfg["model"].get("output_stride", 16)),
-            pretrained_backbone=False,
+            pretrained_backbone=pretrained_backbone,
         )
         adapt_first_conv(model, cfg["model"]["input_channels"])
         return model
-
 
 def _build_pytorch_unet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
     with prepend_sys_path(model_dir):
@@ -573,3 +581,4 @@ def build_model(model_key: str, cfg: Dict[str, Any], model_dir: str | Path) -> n
     if key not in BUILDERS:
         raise KeyError(f"Unsupported model key {model_key!r}. Available: {sorted(BUILDERS)}")
     return BUILDERS[key](Path(model_dir), cfg)
+
