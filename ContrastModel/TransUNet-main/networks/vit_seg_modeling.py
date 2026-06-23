@@ -139,7 +139,11 @@ class Embeddings(nn.Module):
             self.hybrid = False
 
         if self.hybrid:
-            self.hybrid_model = ResNetV2(block_units=config.resnet.num_layers, width_factor=config.resnet.width_factor)
+            self.hybrid_model = ResNetV2(
+                block_units=config.resnet.num_layers,
+                width_factor=config.resnet.width_factor,
+                in_channels=in_channels,
+            )
             in_channels = self.hybrid_model.width * 16
         self.patch_embeddings = Conv2d(in_channels=in_channels,
                                        out_channels=config.hidden_size,

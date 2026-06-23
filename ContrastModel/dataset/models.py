@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import importlib
 import importlib.machinery
 import sys
@@ -371,18 +372,47 @@ class PDPNetWrapper(nn.Module):
 def _build_transunet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
     with prepend_sys_path(model_dir):
         vit = importlib.import_module("networks.vit_seg_modeling")
-        vit_name = cfg["model"].get("vit_name", "ViT-B_16")
-        config_vit = vit.CONFIGS[vit_name]
+        vit_name = cfg["model"].get("vit_name", "R50-ViT-B_16")
+        config_vit = copy.deepcopy(vit.CONFIGS[vit_name])
         config_vit.n_classes = cfg["model"]["out_channels"]
-        config_vit.n_skip = int(cfg["model"].get("n_skip", 0))
+        config_vit.n_skip = int(cfg["model"].get("n_skip", 3 if vit_name.startswith("R50") else 0))
+        if "transformer_layers" in cfg["model"]:
+            config_vit.transformer.num_layers = int(cfg["model"]["transformer_layers"])
+        if "transformer_heads" in cfg["model"]:
+            config_vit.transformer.num_heads = int(cfg["model"]["transformer_heads"])
+        if "transformer_mlp_dim" in cfg["model"]:
+            config_vit.transformer.mlp_dim = int(cfg["model"]["transformer_mlp_dim"])
+        if "dropout_rate" in cfg["model"]:
+            config_vit.transformer.dropout_rate = float(cfg["model"]["dropout_rate"])
+        if "attention_dropout_rate" in cfg["model"]:
+            config_vit.transformer.attention_dropout_rate = float(cfg["model"]["attention_dropout_rate"])
+        if "decoder_channels" in cfg["model"]:
+            config_vit.decoder_channels = tuple(int(v) for v in cfg["model"]["decoder_channels"])
         if vit_name.startswith("R50") and config_vit.n_skip:
-            config_vit.patches.grid = (int(cfg["data"].get("image_size", [256, 256])[0] / 16), int(cfg["data"].get("image_size", [256, 256])[1] / 16))
-        return vit.VisionTransformer(
+            image_size = cfg["data"].get("image_size", [256, 256])
+            vit_patch_size = int(cfg["model"].get("vit_patches_size", 16))
+            config_vit.patches.grid = (int(image_size[0] / vit_patch_size), int(image_size[1] / vit_patch_size))
+        model = vit.VisionTransformer(
             config_vit,
             img_size=int(cfg["data"].get("image_size", [256, 256])[0]),
             num_classes=cfg["model"]["out_channels"],
             in_channels=cfg["model"]["input_channels"],
         )
+        pretrained_path = cfg["model"].get("pretrained_path") or getattr(config_vit, "pretrained_path", None)
+        if bool(cfg["model"].get("pretrained", False)) and pretrained_path:
+            pretrained_path = Path(pretrained_path)
+            if not pretrained_path.is_absolute():
+                pretrained_path = (model_dir / pretrained_path).resolve()
+            if pretrained_path.is_file():
+                try:
+                    import numpy as np
+
+                    model.load_from(weights=np.load(str(pretrained_path)))
+                except Exception as exc:
+                    print(f"[TransUNet] warning: failed to load pretrained weights from {pretrained_path}: {exc}")
+            else:
+                print(f"[TransUNet] warning: pretrained_path not found: {pretrained_path}")
+        return model
 
 
 def _build_mobile_uvit(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:

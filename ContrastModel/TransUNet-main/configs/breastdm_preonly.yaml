@@ -3,8 +3,17 @@ model:
   input_channels: 1
   out_channels: 1
   pretrained: false
-  vit_name: ViT-B_16
-  n_skip: 0
+  vit_name: R50-ViT-B_16
+  n_skip: 3
+  vit_patches_size: 16
+  transformer_layers: 6
+  dropout_rate: 0.1
+  attention_dropout_rate: 0.0
+  decoder_channels:
+  - 256
+  - 128
+  - 64
+  - 16
 data:
   mode: 2d
   train_path: ../../../processed_17ch_dce/train
