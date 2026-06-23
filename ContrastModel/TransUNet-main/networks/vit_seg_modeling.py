@@ -382,7 +382,8 @@ class VisionTransformer(nn.Module):
         self.config = config
 
     def forward(self, x):
-        if x.size()[1] == 1:
+        expected_channels = self.transformer.embeddings.patch_embeddings.in_channels
+        if x.size()[1] == 1 and expected_channels == 3:
             x = x.repeat(1,3,1,1)
         x, attn_weights, features = self.transformer(x)  # (B, n_patch, hidden)
         x = self.decoder(x, features)
