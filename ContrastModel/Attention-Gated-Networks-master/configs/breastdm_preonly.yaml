@@ -17,7 +17,7 @@ data:
   - 256
   normalize: zscore
   input_phase_indices:
-  - 0
+  - 2
 train:
   epochs: 100
   batch_size: 4

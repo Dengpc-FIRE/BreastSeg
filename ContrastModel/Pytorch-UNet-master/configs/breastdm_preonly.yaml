@@ -15,7 +15,7 @@ data:
   - 256
   normalize: zscore
   input_phase_indices:
-  - 0
+  - 2
 train:
   epochs: 100
   batch_size: 4
@@ -27,7 +27,7 @@ train:
   amp: true
   seed: 2026
 eval:
-  threshold: 0.5
+  threshold: 0.3
   save_predictions: false
 output:
   checkpoint_dir: checkpoints_preonly
