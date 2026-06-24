@@ -298,6 +298,85 @@ def heatmap(image: np.ndarray, colormap: int = cv2.COLORMAP_JET) -> np.ndarray:
     return cv2.applyColorMap(normalize_to_uint8(image), colormap)
 
 
+def normalize_to_uint8_fixed(image: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
+    """Normalize with an explicit value range.
+
+    This is useful for attention maps. If every phase is normalized separately,
+    a low-weight subtraction map can still look red because its tiny internal
+    variation is stretched to the full colormap. A common range preserves the
+    relative strength across phases.
+    """
+    image = np.nan_to_num(np.asarray(image, dtype=np.float32))
+    if vmax <= vmin:
+        vmax = vmin + 1e-6
+    image = np.clip((image - float(vmin)) / (float(vmax) - float(vmin)), 0.0, 1.0)
+    return (image * 255.0).astype(np.uint8)
+
+
+def heatmap_fixed(
+    image: np.ndarray,
+    vmin: float,
+    vmax: float,
+    colormap: int = cv2.COLORMAP_JET,
+) -> np.ndarray:
+    return cv2.applyColorMap(normalize_to_uint8_fixed(image, vmin, vmax), colormap)
+
+
+def resize_map_to_shape(
+    image: np.ndarray,
+    spatial_shape: Tuple[int, int],
+    interpolation: int = cv2.INTER_CUBIC,
+) -> np.ndarray:
+    """Resize a scalar map to a target [H,W] shape for image overlays.
+
+    Attention tensors are not always full-resolution. For example, CSAM slice
+    attention is a global [K,1,1] weight, while simple slice attention is
+    [K,H,W]. This helper converts both into displayable [H,W] maps.
+    """
+    image = np.nan_to_num(np.asarray(image, dtype=np.float32))
+    while image.ndim > 2:
+        image = image.mean(axis=0)
+    if image.ndim == 0:
+        image = np.full(spatial_shape, float(image), dtype=np.float32)
+    elif image.shape != spatial_shape:
+        image = cv2.resize(
+            image,
+            (int(spatial_shape[1]), int(spatial_shape[0])),
+            interpolation=interpolation,
+        )
+    return image.astype(np.float32, copy=False)
+
+
+def heatmap_overlay(
+    base: np.ndarray,
+    value_map: np.ndarray,
+    alpha: float = 0.45,
+    colormap: int = cv2.COLORMAP_JET,
+) -> np.ndarray:
+    """Overlay a scalar map on the center pre-contrast slice."""
+    value_map = resize_map_to_shape(value_map, base.shape[:2])
+    return cv2.addWeighted(gray_to_bgr(base), 1.0 - alpha, heatmap(value_map, colormap), alpha, 0)
+
+
+def heatmap_overlay_fixed(
+    base: np.ndarray,
+    value_map: np.ndarray,
+    vmin: float,
+    vmax: float,
+    alpha: float = 0.45,
+    colormap: int = cv2.COLORMAP_JET,
+) -> np.ndarray:
+    """Overlay a scalar map using a shared value range."""
+    value_map = resize_map_to_shape(value_map, base.shape[:2])
+    return cv2.addWeighted(
+        gray_to_bgr(base),
+        1.0 - alpha,
+        heatmap_fixed(value_map, vmin, vmax, colormap),
+        alpha,
+        0,
+    )
+
+
 def gray_to_bgr(image: np.ndarray) -> np.ndarray:
     if image.ndim == 3:
         return image
@@ -354,6 +433,25 @@ def overlay_mask(base: np.ndarray, mask: np.ndarray, color=(0, 0, 255), alpha: f
     return output
 
 
+def prediction_context_panels(sample: Dict, base: np.ndarray) -> List[np.ndarray]:
+    """Return GT/prediction panels shared by attention and kinetic figures."""
+    gt = (tensor_to_numpy(sample["mask"])[0] >= 0.5).astype(np.uint8)
+    prob = tensor_to_numpy(sample["probability"])[0]
+    pred = (prob >= float(sample["threshold"])).astype(np.uint8)
+    merged = gray_to_bgr(base)
+    gt_bool = gt.astype(bool)
+    pred_bool = pred.astype(bool)
+    merged[gt_bool] = (0, 255, 0)
+    merged[pred_bool] = (0, 0, 255)
+    merged[np.logical_and(gt_bool, pred_bool)] = (0, 255, 255)
+    return [
+        add_title(gray_to_bgr(gt * 255), "GT mask"),
+        add_title(gray_to_bgr(pred * 255), f"prediction t={float(sample['threshold']):g}"),
+        add_title(heatmap(prob), "tumor probability"),
+        add_title(merged, "GT green / Pred red / overlap yellow"),
+    ]
+
+
 def center_pre(image: torch.Tensor) -> np.ndarray:
     center = image.shape[0] // 2
     return image[center, 0].numpy()
@@ -400,4 +498,5 @@ def write_csv(path: Path, rows: Iterable[Dict], fieldnames: Sequence[str]) -> No
         writer = csv.DictWriter(file, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
 

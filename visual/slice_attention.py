@@ -15,23 +15,25 @@ from visual.common import (
     add_title,
     center_pre,
     gray_to_bgr,
-    heatmap,
+    heatmap_overlay,
     iter_outputs,
     make_grid,
     normalize_to_uint8,
+    prediction_context_panels,
+    resize_map_to_shape,
 )
 
 
 def reduce_slice_attention(attn) -> np.ndarray:
-    """Convert a slice-attention tensor to [K,H,W]."""
+    """Convert a slice-attention tensor to [K,H,W] or [K,1,1]."""
     if attn is None or not torch.is_tensor(attn):
         return np.empty((0, 0, 0), dtype=np.float32)
     tensor = attn.detach().float()
     if tensor.ndim == 5:
-        # [K,T,1,H,W] or [K,T,C,H,W] -> [K,H,W]
+        # [K,T,1,H,W] or [K,T,C,H,W] -> [K,H,W].
         tensor = tensor.mean(dim=(1, 2))
     elif tensor.ndim == 4:
-        # [K,1,H,W] or [K,T,H,W] -> [K,H,W]
+        # [K,1,H,W] or [K,T,H,W] -> [K,H,W].
         tensor = tensor.mean(dim=1)
     elif tensor.ndim == 3:
         pass
@@ -40,24 +42,40 @@ def reduce_slice_attention(attn) -> np.ndarray:
     return tensor.numpy()
 
 
-def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: np.ndarray, prefix: str):
+def slice_labels(num_slices: int):
+    center = num_slices // 2
+    labels = []
+    for index in range(num_slices):
+        offset = index - center
+        if offset == 0:
+            labels.append("z")
+        elif offset < 0:
+            labels.append(f"z{offset}")
+        else:
+            labels.append(f"z+{offset}")
+    return labels
+
+
+def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: np.ndarray, prefix: str, sample):
     if maps.size == 0:
-        return
-    labels = [f"z-{maps.shape[0] // 2 - i}" if i < maps.shape[0] // 2 else ("z" if i == maps.shape[0] // 2 else f"z+{i - maps.shape[0] // 2}") for i in range(maps.shape[0])]
+        return False
+    labels = slice_labels(maps.shape[0])
     panels = [add_title(gray_to_bgr(base), "center pre")]
+    panels.extend(prediction_context_panels(sample, base))
     for index, att in enumerate(maps):
-        hm = heatmap(att)
-        overlay = cv2.addWeighted(gray_to_bgr(base), 0.55, hm, 0.45, 0)
-        panels.append(add_title(overlay, f"{prefix} {labels[index]} mean={att.mean():.3f}"))
+        display_map = resize_map_to_shape(att, base.shape[:2])
+        overlay = heatmap_overlay(base, display_map)
+        panels.append(add_title(overlay, f"{prefix} {labels[index]} mean={float(att.mean()):.3f}"))
         cv2.imwrite(
-            str(output_root / f"{stem}_{prefix}_{index}.png"),
-            normalize_to_uint8(att),
+            str(output_root / f"{stem}_{prefix}_{labels[index]}_attention.png"),
+            normalize_to_uint8(display_map),
         )
     cv2.imwrite(str(output_root / f"{stem}_{prefix}_grid.png"), make_grid(panels, cols=4))
+    return True
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize slice attention maps.")
+    parser = argparse.ArgumentParser(description="Visualize slice attention maps with GT and prediction context.")
     add_common_args(parser, "slice_attention")
     args = parser.parse_args()
 
@@ -70,9 +88,10 @@ def main():
         maps = sample["output"].get("slice_attention_maps", [])
         image_slice_attn = reduce_slice_attention(maps[0] if maps else None)
         kinetic_slice_attn = reduce_slice_attention(maps[1] if len(maps) > 1 else None)
-        save_attention_group(output_root, stem, base, image_slice_attn, "image_slice")
-        save_attention_group(output_root, stem, base, kinetic_slice_attn, "kinetic_slice")
-        saved += 1
+        wrote_image = save_attention_group(output_root, stem, base, image_slice_attn, "image_slice", sample)
+        wrote_kinetic = save_attention_group(output_root, stem, base, kinetic_slice_attn, "kinetic_slice", sample)
+        if wrote_image or wrote_kinetic:
+            saved += 1
     print(f"Saved slice attention visualizations for {saved} samples")
 
 

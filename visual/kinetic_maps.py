@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 
 import cv2
-import numpy as np
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -15,16 +14,18 @@ from visual.common import (
     add_title,
     center_pre,
     gray_to_bgr,
-    heatmap,
+    heatmap_overlay,
     iter_outputs,
     kinetic_labels,
     make_grid,
     normalize_to_uint8,
+    prediction_context_panels,
+    resize_map_to_shape,
 )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Visualize pseudo-kinetic maps.")
+    parser = argparse.ArgumentParser(description="Visualize pseudo-kinetic maps with GT and prediction context.")
     add_common_args(parser, "kinetic_maps")
     args = parser.parse_args()
 
@@ -40,17 +41,20 @@ def main():
         kinetic = kinetic.detach().float()
         if kinetic.ndim != 4:
             continue
+
         center = kinetic.shape[0] // 2
-        maps = kinetic[center].numpy()  # [M,H,W]
+        maps = kinetic[center].numpy()  # [M,H,W], center slice kinetic maps.
         labels = kinetic_labels(sample["config"], maps.shape[0])
         panels = [add_title(gray_to_bgr(base), "center pre")]
+        panels.extend(prediction_context_panels(sample, base))
+
         for index, kinetic_map in enumerate(maps):
-            hm = heatmap(kinetic_map)
-            overlay = cv2.addWeighted(gray_to_bgr(base), 0.55, hm, 0.45, 0)
+            display_map = resize_map_to_shape(kinetic_map, base.shape[:2])
+            overlay = heatmap_overlay(base, display_map)
             panels.append(add_title(overlay, labels[index]))
             cv2.imwrite(
                 str(output_root / f"{stem}_{index:02d}_{labels[index]}.png"),
-                normalize_to_uint8(kinetic_map),
+                normalize_to_uint8(display_map),
             )
         cv2.imwrite(str(output_root / f"{stem}_kinetic_grid.png"), make_grid(panels, cols=4))
         saved += 1
