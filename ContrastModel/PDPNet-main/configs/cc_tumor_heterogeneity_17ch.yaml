@@ -9,15 +9,16 @@ data:
   train_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/train
   val_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/val
   test_path: ../../../processed_cc_tumor_heterogeneity_17ch_2d/test
-  image_size: [128, 128]
+  image_size: [256, 256]
   normalize: zscore
 train:
   epochs: 100
-  batch_size: 16
-  lr: 0.0001
+  batch_size: 4
+  lr: 0.00005
   weight_decay: 0.00001
   num_workers: 4
   early_stopping: 0
+  scheduler: none
   amp: false
   seed: 2026
   extra_loss_weight: 0.0

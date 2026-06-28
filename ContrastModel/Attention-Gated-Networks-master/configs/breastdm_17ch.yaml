@@ -23,7 +23,7 @@ train:
   weight_decay: 1.0e-05
   num_workers: 4
   early_stopping: 0
-  scheduler: reduce_on_plateau
+  scheduler: none
   amp: true
   max_grad_norm: 1.0
   seed: 2026

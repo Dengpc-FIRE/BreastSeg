@@ -22,15 +22,16 @@ data:
   allow_missing_phases: false
 train:
   epochs: 100
-  batch_size: 1
+  batch_size: 4
   lr: 0.0001
   weight_decay: 0.00001
   num_workers: 2
   early_stopping: 0
+  scheduler: none
   amp: true
   seed: 2026
 eval:
-  threshold: 0.5
+  threshold: 0.97
   sliding_window_overlap: 0.5
 output:
   checkpoint_dir: checkpoints_cc_tumor_heterogeneity_17ch

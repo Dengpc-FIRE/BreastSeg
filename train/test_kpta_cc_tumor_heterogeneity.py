@@ -20,7 +20,7 @@ from train.train_config import build_model_from_config, checkpoint_name_from_con
 from train.train_kpta import build_dataset  # noqa: E402
 
 
-DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "kpta_25d_net_cc_tumor_heterogeneity_17ch-v2.yaml"
+DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "kpta_25d_net_cc_tumor_heterogeneity_17ch-v3.yaml"
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", default=None)
     parser.add_argument("--device", default=None)
     parser.add_argument("--batch-size", type=int, default=None)
-    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--threshold", type=float, default=0.60)
     parser.add_argument("--output-dir", default=None)
     return parser.parse_args()
 
