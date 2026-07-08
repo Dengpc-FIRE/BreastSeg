@@ -1,4 +1,5 @@
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -13,6 +14,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from visual.common import (
     add_common_args,
     iter_outputs,
+    normalize_to_uint8_fixed,
+    phase_labels,
     resize_map_to_shape,
     write_csv,
 )
@@ -20,11 +23,16 @@ from visual.paper_style import (
     compose_case_matrix,
     overlay_attention,
     phase_display_indices,
-    save_fixed_map,
     tensor_to_numpy,
 )
 
 COLUMN_LABELS = ["Pre", "Early", "Middle", "Late", "Subtraction"]
+
+
+def safe_phase_name(label: str) -> str:
+    label = str(label).strip().lower().replace(" ", "_").replace("-", "")
+    label = re.sub(r"[^0-9a-zA-Z_]+", "_", label)
+    return label.strip("_") or "phase"
 
 
 def extract_phase_attention(output) -> np.ndarray:
@@ -35,37 +43,74 @@ def extract_phase_attention(output) -> np.ndarray:
     if attn is None or not torch.is_tensor(attn):
         return np.empty((0, 0, 0), dtype=np.float32)
     tensor = attn.detach().float()
+    if tensor.ndim == 5:
+        # [B,T,1,H,W] should normally be sliced before this script sees it,
+        # but keep the extractor robust for direct debug calls.
+        tensor = tensor.squeeze(0) if tensor.shape[0] == 1 else tensor.mean(dim=0)
     if tensor.ndim == 4:
-        # [T,1,H,W] -> [T,H,W].
-        tensor = tensor.squeeze(1)
-    elif tensor.ndim == 3:
-        pass
-    else:
+        if tensor.shape[1] == 1:
+            # [T,1,H,W] -> [T,H,W].
+            tensor = tensor.squeeze(1)
+        elif tensor.shape[0] == 1:
+            # [1,T,H,W] -> [T,H,W].
+            tensor = tensor.squeeze(0)
+        else:
+            # [T,C,H,W] -> [T,H,W].
+            tensor = tensor.mean(dim=1)
+    elif tensor.ndim != 3:
         return np.empty((0, 0, 0), dtype=np.float32)
     return tensor.numpy()
+
+
+def save_phase_overlays(sample, attn: np.ndarray, stem: str, output_root: Path, vmin: float, vmax: float):
+    """Save every phase as a colored attention overlay and return overlay panels."""
+    image = tensor_to_numpy(sample["image"])
+    center_slice = image.shape[0] // 2
+    count = min(attn.shape[0], image.shape[1])
+    labels = phase_labels(sample["config"], count)
+    overlays = []
+    maps = []
+
+    for phase_index in range(count):
+        label = safe_phase_name(labels[phase_index])
+        base = image[center_slice, phase_index]
+        display_map = resize_map_to_shape(attn[phase_index], base.shape[:2])
+        overlay = overlay_attention(base, display_map, vmin=vmin, vmax=vmax)
+        overlays.append(overlay)
+        maps.append(display_map)
+        cv2.imwrite(str(output_root / f"{stem}_{label}_attention.png"), overlay)
+        cv2.imwrite(
+            str(output_root / f"{stem}_{label}_attention_raw.png"),
+            normalize_to_uint8_fixed(display_map, vmin=vmin, vmax=vmax),
+        )
+    return overlays, maps, labels
 
 
 def build_phase_row(sample, attn: np.ndarray, stem: str, output_root: Path, vmin: float, vmax: float):
     if attn.size == 0:
         return None, []
     image = tensor_to_numpy(sample["image"])
-    center_slice = image.shape[0] // 2
     count = min(attn.shape[0], image.shape[1])
-    indices = phase_display_indices(sample["config"], count)
-    rows = []
-    panels = []
-    gt = tensor_to_numpy(sample["mask"])[0] >= 0.5
+    if count <= 0:
+        return None, []
 
-    for label, phase_index in zip(COLUMN_LABELS, indices):
-        base = image[center_slice, phase_index]
-        display_map = resize_map_to_shape(attn[phase_index], base.shape[:2])
-        panels.append(overlay_attention(base, display_map, vmin=vmin, vmax=vmax))
+    overlays, maps, labels = save_phase_overlays(sample, attn, stem, output_root, vmin=vmin, vmax=vmax)
+    indices = phase_display_indices(sample["config"], count)
+    gt = tensor_to_numpy(sample["mask"])[0] >= 0.5
+    panels = []
+    rows = []
+
+    for display_label, phase_index in zip(COLUMN_LABELS, indices):
+        phase_index = int(np.clip(phase_index, 0, count - 1))
+        display_map = maps[phase_index]
+        panels.append(overlays[phase_index])
         tumor_mean = float(display_map[gt].mean()) if gt.any() else float("nan")
         background_mean = float(display_map[~gt].mean()) if (~gt).any() else float("nan")
         rows.append(
             {
                 "name": sample["name"],
-                "phase": label,
+                "phase": display_label,
+                "source_phase": labels[phase_index],
                 "phase_index": int(phase_index),
                 "mean": float(display_map.mean()),
                 "tumor_mean": tumor_mean,
@@ -74,15 +119,29 @@ def build_phase_row(sample, attn: np.ndarray, stem: str, output_root: Path, vmin
                 "vmax": float(vmax),
             }
         )
-        save_fixed_map(output_root / f"{stem}_{label.lower()}_attention.png", display_map, vmin=vmin, vmax=vmax)
     return panels, rows
+
+
+def resolve_vmax(attn: np.ndarray, vmin: float, explicit_vmax):
+    if explicit_vmax is not None:
+        vmax = float(explicit_vmax)
+    else:
+        vmax = float(np.nanmax(attn)) if attn.size else vmin + 1e-6
+    if not np.isfinite(vmax) or vmax <= vmin:
+        vmax = vmin + 1e-6
+    return vmax
 
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize phase attention maps in a paper-style case matrix.")
     add_common_args(parser, "phase_attention")
     parser.add_argument("--phase_vmin", type=float, default=0.0, help="Lower bound for the shared phase-attention colormap.")
-    parser.add_argument("--phase_vmax", type=float, default=1.0, help="Upper bound for the shared phase-attention colormap.")
+    parser.add_argument(
+        "--phase_vmax",
+        type=float,
+        default=None,
+        help="Upper bound for the phase-attention colormap. Default: per-sample max attention for visible overlays.",
+    )
     parser.add_argument("--panel_size", type=int, default=150, help="Square panel size in pixels for the summary figure.")
     args = parser.parse_args()
 
@@ -97,10 +156,8 @@ def main():
         attn = extract_phase_attention(sample["output"])
         if attn.size == 0:
             continue
-        vmax = float(args.phase_vmax)
         vmin = float(args.phase_vmin)
-        if vmax <= vmin:
-            vmax = vmin + 1e-6
+        vmax = resolve_vmax(attn, vmin, args.phase_vmax)
         panels, sample_rows = build_phase_row(sample, attn, stem, output_root, vmin=vmin, vmax=vmax)
         if panels is not None:
             rows.append(panels)
@@ -116,14 +173,14 @@ def main():
             colorbar={
                 "colormap": cv2.COLORMAP_JET,
                 "label": "Phase Attention Weight",
-                "tick_labels": [(1.0, "1.0"), (0.0, "0.0")],
+                "tick_labels": [(1.0, "High"), (0.0, "Low")],
             },
         )
     if csv_rows and last_output_root is not None:
         write_csv(
             last_output_root / "phase_attention_weights.csv",
             csv_rows,
-            ["name", "phase", "phase_index", "mean", "tumor_mean", "background_mean", "vmin", "vmax"],
+            ["name", "phase", "source_phase", "phase_index", "mean", "tumor_mean", "background_mean", "vmin", "vmax"],
         )
     print(f"Saved phase attention summary for {len(rows)} samples")
 
