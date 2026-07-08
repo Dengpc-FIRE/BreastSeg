@@ -7,9 +7,9 @@ import torch
 
 from visual.common import (
     gray_to_bgr,
-    heatmap_overlay_fixed,
     normalize_to_uint8,
     normalize_to_uint8_fixed,
+    resize_map_to_shape,
 )
 
 PLASMA_COLORMAP = getattr(cv2, "COLORMAP_PLASMA", cv2.COLORMAP_JET)
@@ -76,8 +76,34 @@ def phase_panel(image: np.ndarray, slice_index: int, phase_index: int) -> np.nda
     return gray_to_bgr(normalize_to_uint8(image[slice_index, phase_index]))
 
 
-def overlay_attention(base_gray: np.ndarray, value_map: np.ndarray, vmin: float = 0.0, vmax: float = 1.0) -> np.ndarray:
-    return heatmap_overlay_fixed(normalize_to_uint8(base_gray), value_map, vmin=vmin, vmax=vmax)
+def overlay_attention(
+    base_gray: np.ndarray,
+    value_map: np.ndarray,
+    vmin: float = 0.0,
+    vmax: float = 1.0,
+    alpha: float = 0.58,
+    min_alpha: float = 0.0,
+    threshold: float = 0.12,
+    colormap: int = cv2.COLORMAP_JET,
+) -> np.ndarray:
+    """Overlay attention while keeping low-response background close to MRI gray.
+
+    A plain JET overlay colors every pixel blue, even where attention is near
+    zero. This masks the anatomy and makes weak maps look like full-image
+    attention. Here low normalized attention is transparent, and opacity ramps
+    up only for higher responses.
+    """
+    base = gray_to_bgr(normalize_to_uint8(base_gray)).astype(np.float32)
+    value_map = resize_map_to_shape(value_map, base.shape[:2])
+    norm = normalize_to_uint8_fixed(value_map, vmin=vmin, vmax=vmax).astype(np.float32) / 255.0
+    heat = cv2.applyColorMap((norm * 255.0).astype(np.uint8), colormap).astype(np.float32)
+
+    threshold = float(np.clip(threshold, 0.0, 0.95))
+    ramp = np.clip((norm - threshold) / max(1.0 - threshold, 1e-6), 0.0, 1.0)
+    opacity = min_alpha + (alpha - min_alpha) * ramp
+    opacity = opacity[..., None]
+    blended = base * (1.0 - opacity) + heat * opacity
+    return np.clip(blended, 0, 255).astype(np.uint8)
 
 
 def prior_heatmap(value_map: np.ndarray) -> np.ndarray:

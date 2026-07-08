@@ -122,11 +122,17 @@ def build_phase_row(sample, attn: np.ndarray, stem: str, output_root: Path, vmin
     return panels, rows
 
 
-def resolve_vmax(attn: np.ndarray, vmin: float, explicit_vmax):
+def resolve_vmax(attn: np.ndarray, vmin: float, explicit_vmax, percentile: float):
     if explicit_vmax is not None:
         vmax = float(explicit_vmax)
     else:
-        vmax = float(np.nanmax(attn)) if attn.size else vmin + 1e-6
+        values = np.nan_to_num(np.asarray(attn, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+        positive = values[values > vmin]
+        if positive.size:
+            percentile = float(np.clip(percentile, 50.0, 100.0))
+            vmax = float(np.percentile(positive, percentile))
+        else:
+            vmax = float(values.max()) if values.size else vmin + 1e-6
     if not np.isfinite(vmax) or vmax <= vmin:
         vmax = vmin + 1e-6
     return vmax
@@ -140,7 +146,13 @@ def main():
         "--phase_vmax",
         type=float,
         default=None,
-        help="Upper bound for the phase-attention colormap. Default: per-sample max attention for visible overlays.",
+        help="Upper bound for the phase-attention colormap. Default: per-sample percentile attention for visible overlays.",
+    )
+    parser.add_argument(
+        "--phase_vmax_percentile",
+        type=float,
+        default=99.0,
+        help="Percentile used as phase_vmax when --phase_vmax is not set. Default: 99.",
     )
     parser.add_argument("--panel_size", type=int, default=150, help="Square panel size in pixels for the summary figure.")
     args = parser.parse_args()
@@ -157,7 +169,7 @@ def main():
         if attn.size == 0:
             continue
         vmin = float(args.phase_vmin)
-        vmax = resolve_vmax(attn, vmin, args.phase_vmax)
+        vmax = resolve_vmax(attn, vmin, args.phase_vmax, args.phase_vmax_percentile)
         panels, sample_rows = build_phase_row(sample, attn, stem, output_root, vmin=vmin, vmax=vmax)
         if panels is not None:
             rows.append(panels)
