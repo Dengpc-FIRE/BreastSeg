@@ -111,8 +111,8 @@ def overlay_attention_blue_base(
     value_map: np.ndarray,
     vmin: float = 0.0,
     vmax: float = 1.0,
-    alpha: float = 0.62,
-    gamma: float = 1.35,
+    alpha: float = 0.56,
+    gamma: float = 1.0,
     colormap: int = cv2.COLORMAP_JET,
 ) -> np.ndarray:
     """Overlay attention with a full blue heatmap background.

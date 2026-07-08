@@ -122,17 +122,27 @@ def build_phase_row(sample, attn: np.ndarray, stem: str, output_root: Path, vmin
     return panels, rows
 
 
+def finite_attention_values(attn: np.ndarray) -> np.ndarray:
+    values = np.asarray(attn, dtype=np.float32)
+    values = values[np.isfinite(values)]
+    return values if values.size else np.asarray([0.0], dtype=np.float32)
+
+
+def resolve_vmin(attn: np.ndarray, explicit_vmin, percentile: float):
+    if explicit_vmin is not None:
+        return float(explicit_vmin)
+    values = finite_attention_values(attn)
+    percentile = float(np.clip(percentile, 0.0, 50.0))
+    return float(np.percentile(values, percentile))
+
+
 def resolve_vmax(attn: np.ndarray, vmin: float, explicit_vmax, percentile: float):
     if explicit_vmax is not None:
         vmax = float(explicit_vmax)
     else:
-        values = np.nan_to_num(np.asarray(attn, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
-        positive = values[values > vmin]
-        if positive.size:
-            percentile = float(np.clip(percentile, 50.0, 100.0))
-            vmax = float(np.percentile(positive, percentile))
-        else:
-            vmax = float(values.max()) if values.size else vmin + 1e-6
+        values = finite_attention_values(attn)
+        percentile = float(np.clip(percentile, 50.0, 100.0))
+        vmax = float(np.percentile(values, percentile))
     if not np.isfinite(vmax) or vmax <= vmin:
         vmax = vmin + 1e-6
     return vmax
@@ -141,7 +151,18 @@ def resolve_vmax(attn: np.ndarray, vmin: float, explicit_vmax, percentile: float
 def main():
     parser = argparse.ArgumentParser(description="Visualize phase attention maps in a paper-style case matrix.")
     add_common_args(parser, "phase_attention")
-    parser.add_argument("--phase_vmin", type=float, default=0.0, help="Lower bound for the shared phase-attention colormap.")
+    parser.add_argument(
+        "--phase_vmin",
+        type=float,
+        default=None,
+        help="Lower bound for the phase-attention colormap. Default: per-sample low percentile attention.",
+    )
+    parser.add_argument(
+        "--phase_vmin_percentile",
+        type=float,
+        default=1.0,
+        help="Percentile used as phase_vmin when --phase_vmin is not set. Default: 1.",
+    )
     parser.add_argument(
         "--phase_vmax",
         type=float,
@@ -180,7 +201,7 @@ def main():
         attn = extract_phase_attention(sample["output"])
         if attn.size == 0:
             continue
-        vmin = float(args.phase_vmin)
+        vmin = resolve_vmin(attn, args.phase_vmin, args.phase_vmin_percentile)
         vmax = resolve_vmax(attn, vmin, args.phase_vmax, args.phase_vmax_percentile)
         panels, sample_rows = build_phase_row(sample, attn, stem, output_root, vmin=vmin, vmax=vmax, alpha=args.phase_overlay_alpha, gamma=args.phase_overlay_gamma)
         if panels is not None:
@@ -197,7 +218,7 @@ def main():
             colorbar={
                 "colormap": cv2.COLORMAP_JET,
                 "label": "Phase Attention Weight",
-                "tick_labels": [(1.0, "High"), (0.0, "Low")],
+                "tick_labels": [(1.0, "1.0"), (0.0, "0.0")],
             },
         )
     if csv_rows and last_output_root is not None:
