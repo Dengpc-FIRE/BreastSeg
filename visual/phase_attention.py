@@ -14,6 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from visual.common import (
     add_common_args,
     iter_outputs,
+    heatmap_overlay_fixed,
     normalize_to_uint8_fixed,
     phase_labels,
     resize_map_to_shape,
@@ -21,7 +22,6 @@ from visual.common import (
 )
 from visual.paper_style import (
     compose_case_matrix,
-    overlay_attention_blue_base,
     phase_display_indices,
     tensor_to_numpy,
 )
@@ -62,6 +62,11 @@ def extract_phase_attention(output) -> np.ndarray:
     return tensor.numpy()
 
 
+def phase_grid_style_overlay(base: np.ndarray, display_map: np.ndarray, vmin: float, vmax: float, alpha: float):
+    """Match the old phase_attention_grid cell style for single-phase PNGs."""
+    return heatmap_overlay_fixed(base, display_map, vmin=vmin, vmax=vmax, alpha=alpha)
+
+
 def save_phase_overlays(sample, attn: np.ndarray, stem: str, output_root: Path, vmin: float, vmax: float, alpha: float, gamma: float):
     """Save every phase as a colored attention overlay and return overlay panels."""
     image = tensor_to_numpy(sample["image"])
@@ -75,7 +80,7 @@ def save_phase_overlays(sample, attn: np.ndarray, stem: str, output_root: Path, 
         label = safe_phase_name(labels[phase_index])
         base = image[center_slice, phase_index]
         display_map = resize_map_to_shape(attn[phase_index], base.shape[:2])
-        overlay = overlay_attention_blue_base(base, display_map, vmin=vmin, vmax=vmax, alpha=alpha, gamma=gamma)
+        overlay = phase_grid_style_overlay(base, display_map, vmin=vmin, vmax=vmax, alpha=alpha)
         overlays.append(overlay)
         maps.append(display_map)
         cv2.imwrite(str(output_root / f"{stem}_{label}_attention.png"), overlay)
@@ -178,14 +183,14 @@ def main():
     parser.add_argument(
         "--phase_overlay_alpha",
         type=float,
-        default=0.62,
-        help="Heatmap opacity for blue-base phase attention overlays. Default: 0.62.",
+        default=0.45,
+        help="Heatmap opacity. This matches the old phase_attention_grid style. Default: 0.45.",
     )
     parser.add_argument(
         "--phase_overlay_gamma",
         type=float,
-        default=1.35,
-        help="Gamma applied to normalized attention before colormap. Higher keeps more area blue. Default: 1.35.",
+        default=1.0,
+        help="Kept for CLI compatibility; grid-style phase attention does not use gamma.",
     )
     parser.add_argument("--panel_size", type=int, default=150, help="Square panel size in pixels for the summary figure.")
     args = parser.parse_args()
