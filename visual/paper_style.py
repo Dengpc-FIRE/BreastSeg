@@ -106,6 +106,31 @@ def overlay_attention(
     return np.clip(blended, 0, 255).astype(np.uint8)
 
 
+def overlay_attention_blue_base(
+    base_gray: np.ndarray,
+    value_map: np.ndarray,
+    vmin: float = 0.0,
+    vmax: float = 1.0,
+    alpha: float = 0.62,
+    gamma: float = 1.35,
+    colormap: int = cv2.COLORMAP_JET,
+) -> np.ndarray:
+    """Overlay attention with a full blue heatmap background.
+
+    This is intended for phase-attention figures where the expected style is a
+    blue low-response field with yellow/red high-response regions, while still
+    leaving enough grayscale anatomy visible under the heatmap.
+    """
+    base = gray_to_bgr(normalize_to_uint8(base_gray)).astype(np.float32)
+    value_map = resize_map_to_shape(value_map, base.shape[:2])
+    norm = normalize_to_uint8_fixed(value_map, vmin=vmin, vmax=vmax).astype(np.float32) / 255.0
+    gamma = max(float(gamma), 1e-6)
+    norm = np.power(np.clip(norm, 0.0, 1.0), gamma)
+    heat = cv2.applyColorMap((norm * 255.0).astype(np.uint8), colormap).astype(np.float32)
+    alpha = float(np.clip(alpha, 0.0, 1.0))
+    blended = base * (1.0 - alpha) + heat * alpha
+    return np.clip(blended, 0, 255).astype(np.uint8)
+
 def prior_heatmap(value_map: np.ndarray) -> np.ndarray:
     return cv2.applyColorMap(normalize_to_uint8(value_map), PLASMA_COLORMAP)
 

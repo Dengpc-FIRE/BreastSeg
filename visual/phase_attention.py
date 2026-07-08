@@ -21,7 +21,7 @@ from visual.common import (
 )
 from visual.paper_style import (
     compose_case_matrix,
-    overlay_attention,
+    overlay_attention_blue_base,
     phase_display_indices,
     tensor_to_numpy,
 )
@@ -62,7 +62,7 @@ def extract_phase_attention(output) -> np.ndarray:
     return tensor.numpy()
 
 
-def save_phase_overlays(sample, attn: np.ndarray, stem: str, output_root: Path, vmin: float, vmax: float):
+def save_phase_overlays(sample, attn: np.ndarray, stem: str, output_root: Path, vmin: float, vmax: float, alpha: float, gamma: float):
     """Save every phase as a colored attention overlay and return overlay panels."""
     image = tensor_to_numpy(sample["image"])
     center_slice = image.shape[0] // 2
@@ -75,7 +75,7 @@ def save_phase_overlays(sample, attn: np.ndarray, stem: str, output_root: Path, 
         label = safe_phase_name(labels[phase_index])
         base = image[center_slice, phase_index]
         display_map = resize_map_to_shape(attn[phase_index], base.shape[:2])
-        overlay = overlay_attention(base, display_map, vmin=vmin, vmax=vmax)
+        overlay = overlay_attention_blue_base(base, display_map, vmin=vmin, vmax=vmax, alpha=alpha, gamma=gamma)
         overlays.append(overlay)
         maps.append(display_map)
         cv2.imwrite(str(output_root / f"{stem}_{label}_attention.png"), overlay)
@@ -86,7 +86,7 @@ def save_phase_overlays(sample, attn: np.ndarray, stem: str, output_root: Path, 
     return overlays, maps, labels
 
 
-def build_phase_row(sample, attn: np.ndarray, stem: str, output_root: Path, vmin: float, vmax: float):
+def build_phase_row(sample, attn: np.ndarray, stem: str, output_root: Path, vmin: float, vmax: float, alpha: float, gamma: float):
     if attn.size == 0:
         return None, []
     image = tensor_to_numpy(sample["image"])
@@ -94,7 +94,7 @@ def build_phase_row(sample, attn: np.ndarray, stem: str, output_root: Path, vmin
     if count <= 0:
         return None, []
 
-    overlays, maps, labels = save_phase_overlays(sample, attn, stem, output_root, vmin=vmin, vmax=vmax)
+    overlays, maps, labels = save_phase_overlays(sample, attn, stem, output_root, vmin=vmin, vmax=vmax, alpha=alpha, gamma=gamma)
     indices = phase_display_indices(sample["config"], count)
     gt = tensor_to_numpy(sample["mask"])[0] >= 0.5
     panels = []
@@ -154,6 +154,18 @@ def main():
         default=99.0,
         help="Percentile used as phase_vmax when --phase_vmax is not set. Default: 99.",
     )
+    parser.add_argument(
+        "--phase_overlay_alpha",
+        type=float,
+        default=0.62,
+        help="Heatmap opacity for blue-base phase attention overlays. Default: 0.62.",
+    )
+    parser.add_argument(
+        "--phase_overlay_gamma",
+        type=float,
+        default=1.35,
+        help="Gamma applied to normalized attention before colormap. Higher keeps more area blue. Default: 1.35.",
+    )
     parser.add_argument("--panel_size", type=int, default=150, help="Square panel size in pixels for the summary figure.")
     args = parser.parse_args()
 
@@ -170,7 +182,7 @@ def main():
             continue
         vmin = float(args.phase_vmin)
         vmax = resolve_vmax(attn, vmin, args.phase_vmax, args.phase_vmax_percentile)
-        panels, sample_rows = build_phase_row(sample, attn, stem, output_root, vmin=vmin, vmax=vmax)
+        panels, sample_rows = build_phase_row(sample, attn, stem, output_root, vmin=vmin, vmax=vmax, alpha=args.phase_overlay_alpha, gamma=args.phase_overlay_gamma)
         if panels is not None:
             rows.append(panels)
             csv_rows.extend(sample_rows)
