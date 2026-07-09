@@ -16,7 +16,6 @@ from visual.common import (
     add_title,
     center_pre,
     gray_to_bgr,
-    heatmap_overlay_fixed,
     iter_outputs,
     make_grid,
     normalize_to_uint8,
@@ -79,6 +78,34 @@ def draw_bar(values: np.ndarray, labels, width: int = 760, height: int = 260) ->
     return canvas
 
 
+def boost_attention_colormap(norm: np.ndarray, gamma: float, start: float) -> np.ndarray:
+    """Push mid/high attention values toward the red end without changing vmax."""
+    norm = np.clip(norm.astype(np.float32), 0.0, 1.0)
+    start = float(np.clip(start, 0.0, 0.95))
+    gamma = max(float(gamma), 1e-6)
+    boosted = norm.copy()
+    active = norm > start
+    if np.any(active):
+        local = (norm[active] - start) / max(1.0 - start, 1e-6)
+        boosted[active] = start + (1.0 - start) * np.power(local, gamma)
+    return np.clip(boosted, 0.0, 1.0)
+
+
+def attention_overlay_boosted(
+    base: np.ndarray,
+    display_map: np.ndarray,
+    vmin: float,
+    vmax: float,
+    alpha: float,
+    gamma: float,
+    boost_start: float,
+) -> np.ndarray:
+    norm = normalize_to_uint8_fixed(display_map, vmin=vmin, vmax=vmax).astype(np.float32) / 255.0
+    norm = boost_attention_colormap(norm, gamma=gamma, start=boost_start)
+    heatmap = cv2.applyColorMap((norm * 255.0).astype(np.uint8), cv2.COLORMAP_JET)
+    return cv2.addWeighted(gray_to_bgr(base), 1.0 - alpha, heatmap, alpha, 0)
+
+
 def resolve_vmax(attn: np.ndarray, explicit_vmax, percentile):
     if explicit_vmax is not None:
         return float(explicit_vmax)
@@ -119,6 +146,18 @@ def main():
         default=0.45,
         help="Heatmap opacity. Default matches the original phase_attention_grid style: 0.45.",
     )
+    parser.add_argument(
+        "--phase_colormap_gamma",
+        type=float,
+        default=0.55,
+        help="Nonlinear boost for mid/high attention colors. Lower values make yellow regions redder. Default: 0.55.",
+    )
+    parser.add_argument(
+        "--phase_boost_start",
+        type=float,
+        default=0.25,
+        help="Normalized attention value where red-boost starts. Lower values affect more area. Default: 0.25.",
+    )
     args = parser.parse_args()
 
     saved = 0
@@ -146,12 +185,14 @@ def main():
         panels.extend(prediction_context_panels(sample, base))
         for index, phase_map in enumerate(attn):
             display_map = resize_map_to_shape(phase_map, base.shape[:2])
-            overlay = heatmap_overlay_fixed(
+            overlay = attention_overlay_boosted(
                 base,
                 display_map,
                 vmin=vmin,
                 vmax=vmax,
                 alpha=float(np.clip(args.phase_overlay_alpha, 0.0, 1.0)),
+                gamma=args.phase_colormap_gamma,
+                boost_start=args.phase_boost_start,
             )
             tumor_mean = float(display_map[gt].mean()) if gt.any() else float("nan")
             background_mean = float(display_map[~gt].mean()) if (~gt).any() else float("nan")
