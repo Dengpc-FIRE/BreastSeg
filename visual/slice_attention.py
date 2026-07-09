@@ -100,6 +100,18 @@ def has_spatial_detail(att: np.ndarray) -> bool:
         return False
     return float(values.max() - values.min()) > 1e-6
 
+def prepare_display_map(att: np.ndarray, shape, floor_percentile: float) -> np.ndarray:
+    if not has_spatial_detail(att):
+        return np.zeros(shape, dtype=np.float32)
+    display_map = resize_map_to_shape(att, shape).astype(np.float32)
+    values = display_map[np.isfinite(display_map)]
+    if values.size == 0:
+        return np.zeros(shape, dtype=np.float32)
+    floor_percentile = float(np.clip(floor_percentile, 0.0, 99.0))
+    floor = float(np.percentile(values, floor_percentile))
+    display_map = np.maximum(display_map - floor, 0.0)
+    return np.nan_to_num(display_map, nan=0.0, posinf=0.0, neginf=0.0)
+
 
 def resolve_vmax(maps: np.ndarray, explicit_vmax, percentile):
     if explicit_vmax is not None:
@@ -153,43 +165,52 @@ def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: n
     if maps.size == 0:
         return False
 
-    labels = slice_labels(maps.shape[0])
     indices = center_triplet_indices(maps.shape[0])
+    entries = []
+    for index in indices:
+        offset = index - (maps.shape[0] // 2)
+        att = maps[index]
+        current_base = normalize_to_uint8(slice_base(sample["image"], index, maps.shape[0]))
+        display_map = prepare_display_map(att, current_base.shape[:2], args.slice_display_floor_percentile)
+        entries.append(
+            {
+                "offset": offset,
+                "display_label": display_slice_label(offset),
+                "name": safe_name(slice_file_suffix(offset)),
+                "att": att,
+                "base": current_base,
+                "display_map": display_map,
+            }
+        )
+    if not entries:
+        return False
+
+    display_maps = np.stack([entry["display_map"] for entry in entries], axis=0)
     vmin = float(args.slice_vmin)
-    vmax = resolve_vmax(maps[indices] if indices else maps, args.slice_vmax, args.slice_vmax_percentile)
+    vmax = resolve_vmax(display_maps, args.slice_vmax, args.slice_vmax_percentile)
     if vmax <= vmin:
         vmax = vmin + 1e-6
 
     panels = [add_title(gray_to_bgr(base), "center pre")]
     panels.extend(prediction_context_panels(sample, base))
-    for index in indices:
-        label = labels[index]
-        offset = index - (maps.shape[0] // 2)
-        display_label = display_slice_label(offset)
-        att = maps[index]
-        current_base = normalize_to_uint8(slice_base(sample["image"], index, maps.shape[0]))
-        if has_spatial_detail(att):
-            display_map = resize_map_to_shape(att, current_base.shape[:2])
-        else:
-            display_map = np.zeros(current_base.shape[:2], dtype=np.float32)
+    for entry in entries:
         overlay = attention_overlay_boosted(
-            current_base,
-            display_map,
+            entry["base"],
+            entry["display_map"],
             vmin=vmin,
             vmax=vmax,
             alpha=float(np.clip(args.slice_overlay_alpha, 0.0, 1.0)),
             gamma=args.slice_colormap_gamma,
             boost_start=args.slice_boost_start,
         )
-        panels.append(add_title(overlay, f"{prefix} {display_label} mean={float(att.mean()):.3f}"))
-        name = safe_name(slice_file_suffix(offset))
-        cv2.imwrite(str(output_root / f"{stem}_{prefix}_{name}_attention.png"), overlay)
+        panels.append(add_title(overlay, f"{prefix} {entry['display_label']} mean={float(entry['att'].mean()):.3f}"))
+        cv2.imwrite(str(output_root / f"{stem}_{prefix}_{entry['name']}_attention.png"), overlay)
         if args.save_raw_attention:
             raw_root = output_root / "raw_maps"
             raw_root.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(
-                str(raw_root / f"{stem}_{prefix}_{name}_attention_raw.png"),
-                normalize_to_uint8_fixed(display_map, vmin=vmin, vmax=vmax),
+                str(raw_root / f"{stem}_{prefix}_{entry['name']}_attention_raw.png"),
+                normalize_to_uint8_fixed(entry["display_map"], vmin=vmin, vmax=vmax),
             )
     cv2.imwrite(str(output_root / f"{stem}_{prefix}_grid.png"), make_grid(panels, cols=4))
     return True
@@ -223,6 +244,12 @@ def main():
         type=float,
         default=0.25,
         help="Normalized attention value where red-boost starts. Lower values affect more area. Default: 0.25.",
+    )
+    parser.add_argument(
+        "--slice_display_floor_percentile",
+        type=float,
+        default=60.0,
+        help="Percentile subtracted from each slice-attention map before coloring. Higher values suppress broad background tint. Default: 60.",
     )
     parser.add_argument(
         "--save_raw_attention",
