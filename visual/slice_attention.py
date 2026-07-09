@@ -176,7 +176,7 @@ def slice_base(image: torch.Tensor, map_index: int, num_maps: int) -> np.ndarray
     return image[image_index, 0].numpy()
 
 
-def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: np.ndarray, prefix: str, sample, args):
+def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: np.ndarray, prefix: str, sample, args, weights: np.ndarray | None = None):
     if maps.size == 0:
         return False
 
@@ -185,6 +185,7 @@ def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: n
     for index in indices:
         offset = index - (maps.shape[0] // 2)
         att = maps[index]
+        stat = weights[index] if weights is not None and weights.shape[0] > index else att
         current_base = normalize_to_uint8(slice_base(sample["image"], index, maps.shape[0]))
         display_map = prepare_display_map(att, current_base.shape[:2], args.slice_display_floor_percentile)
         entries.append(
@@ -193,6 +194,7 @@ def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: n
                 "display_label": display_slice_label(offset),
                 "name": safe_name(slice_file_suffix(offset)),
                 "att": att,
+                "stat": stat,
                 "base": current_base,
                 "display_map": display_map,
             }
@@ -218,7 +220,7 @@ def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: n
             gamma=args.slice_colormap_gamma,
             boost_start=args.slice_boost_start,
         )
-        panels.append(add_title(overlay, f"{prefix} {entry['display_label']} mean={float(entry['att'].mean()):.3f}"))
+        panels.append(add_title(overlay, f"{prefix} {entry['display_label']} weight={float(entry['stat'].mean()):.3f}"))
         cv2.imwrite(str(output_root / f"{stem}_{prefix}_{entry['name']}_attention.png"), overlay)
         if args.save_raw_attention:
             raw_root = output_root / "raw_maps"
@@ -291,10 +293,18 @@ def main():
         output_root.mkdir(parents=True, exist_ok=True)
         stem = Path(sample["name"]).stem
         base = normalize_to_uint8(center_pre(sample["image"]))
-        maps = sample["output"].get("slice_attention_maps", [])
-        image_slice_attn = reduce_slice_attention(maps[0] if maps else None, args.slice_reduce, args.slice_phase_index)
+        output = sample["output"]
+        maps = output.get("slice_attention_maps", [])
+        csam_contribution = output.get("csam_contribution_maps")
+        image_slice_weights = reduce_slice_attention(maps[0] if maps else None, args.slice_reduce, args.slice_phase_index)
+        if torch.is_tensor(csam_contribution):
+            image_slice_attn = reduce_slice_attention(csam_contribution, args.slice_reduce, args.slice_phase_index)
+            image_prefix = "csam_slice"
+        else:
+            image_slice_attn = image_slice_weights
+            image_prefix = "image_slice"
         kinetic_slice_attn = reduce_slice_attention(maps[1] if len(maps) > 1 else None, args.slice_reduce, args.slice_phase_index)
-        wrote_image = save_attention_group(output_root, stem, base, image_slice_attn, "image_slice", sample, args)
+        wrote_image = save_attention_group(output_root, stem, base, image_slice_attn, image_prefix, sample, args, weights=image_slice_weights)
         wrote_kinetic = save_attention_group(output_root, stem, base, kinetic_slice_attn, "kinetic_slice", sample, args)
         if wrote_image or wrote_kinetic:
             saved += 1

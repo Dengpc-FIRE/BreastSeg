@@ -471,6 +471,8 @@ class CSAMSliceAggregation(nn.Module):
             rank=rank,
         )
         self.last_slice_attention_map = None
+        self.last_csam_spatial_attention = None
+        self.last_csam_contribution_maps = None
 
     def forward(self, features: torch.Tensor):
         if features.ndim != 6:
@@ -482,10 +484,14 @@ class CSAMSliceAggregation(nn.Module):
             center = features[:, k // 2]
             attn = features.new_ones((b, k, t, 1, 1, 1)) / float(k)
             self.last_slice_attention_map = attn.detach()
+            self.last_csam_spatial_attention = None
+            self.last_csam_contribution_maps = None
             return center, attn
 
         out = features.new_empty((b, t, c, h, w))
-        attn_maps = features.new_empty((b, k, t, 1, h, w))
+        attn_maps = features.new_empty((b, k, t, 1, 1, 1))
+        spatial_maps = features.new_empty((b, t, 1, h, w))
+        contribution_maps = features.new_empty((b, k, t, 1, h, w))
         for batch_idx in range(b):
             for phase_idx in range(t):
                 feat = features[batch_idx, :, phase_idx]
@@ -499,10 +505,6 @@ class CSAMSliceAggregation(nn.Module):
                     if spatial_att is None:
                         spatial_att = features.new_ones((1, 1, h, w))
                     spatial_att = spatial_att.to(device=features.device, dtype=features.dtype)
-                    spatial_min = spatial_att.amin(dim=-1, keepdim=True).amin(dim=-2, keepdim=True)
-                    spatial_att = spatial_att - spatial_min
-                    spatial_max = spatial_att.amax(dim=-1, keepdim=True).amax(dim=-2, keepdim=True)
-                    spatial_att = spatial_att / spatial_max.clamp_min(1e-6)
                 else:
                     spatial_att = features.new_ones((1, 1, h, w))
                 if self.csam.slice:
@@ -512,8 +514,12 @@ class CSAMSliceAggregation(nn.Module):
                     slice_att = attn.to(device=features.device, dtype=features.dtype)
                 else:
                     slice_att = features.new_ones((k, 1, 1, 1)) / float(k)
-                attn_maps[batch_idx, :, phase_idx] = slice_att * spatial_att
+                attn_maps[batch_idx, :, phase_idx] = slice_att
+                spatial_maps[batch_idx, phase_idx] = spatial_att
+                contribution_maps[batch_idx, :, phase_idx] = slice_att * spatial_att
         self.last_slice_attention_map = attn_maps.detach()
+        self.last_csam_spatial_attention = spatial_maps.detach()
+        self.last_csam_contribution_maps = contribution_maps.detach()
         return out, attn_maps
 
 
@@ -1304,6 +1310,8 @@ class KPTA25DNet(nn.Module):
         slice_phase_features = self.slice_stem(x_norm)
         # 聚合 K 个相邻切片，只保留 phase 维：【B,K,T,C,H,W】->【B,T,C,H,W】。
         context_features, slice_attention_maps = self.slice_agg(slice_phase_features)
+        csam_spatial_attention_maps = getattr(self.slice_agg, "last_csam_spatial_attention", None)
+        csam_contribution_maps = getattr(self.slice_agg, "last_csam_contribution_maps", None)
         # 编码 kinetic maps，得到动力学先验特征：【B,K,M,H,W】->【B,C,H,W】。
         kinetic_feature, kinetic_slice_attention = self.kinetic_branch(kinetic_maps)
         # 用 kinetic feature 引导像素级 phase attention：
@@ -1372,6 +1380,8 @@ class KPTA25DNet(nn.Module):
             "phase_attention_maps": [phase_attention_maps],
             "attention_maps": [phase_attention_maps],
             "slice_attention_maps": [slice_attention_maps, kinetic_slice_attention],
+            "csam_spatial_attention_maps": csam_spatial_attention_maps,
+            "csam_contribution_maps": csam_contribution_maps,
             "slice_attention_type": self.slice_attention_type,
             "csam_enabled": self.csam_enabled,
             "phase_attention_type": self.phase_attention_type,
