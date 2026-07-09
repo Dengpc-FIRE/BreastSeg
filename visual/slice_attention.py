@@ -47,17 +47,32 @@ def slice_file_suffix(offset: int) -> str:
     return f"z_plus{offset}"
 
 
-def reduce_slice_attention(attn) -> np.ndarray:
+def reduce_slice_attention(attn, reduce_mode: str = "mean", phase_index: int | None = None) -> np.ndarray:
     """Convert a slice-attention tensor to [K,H,W] or [K,1,1]."""
     if attn is None or not torch.is_tensor(attn):
         return np.empty((0, 0, 0), dtype=np.float32)
     tensor = attn.detach().float()
+    reduce_mode = str(reduce_mode).lower()
     if tensor.ndim == 5:
         # [K,T,1,H,W] or [K,T,C,H,W] -> [K,H,W].
-        tensor = tensor.mean(dim=(1, 2))
+        if reduce_mode == "phase":
+            phase_index = tensor.shape[1] // 2 if phase_index is None else int(phase_index)
+            phase_index = int(np.clip(phase_index, 0, tensor.shape[1] - 1))
+            tensor = tensor[:, phase_index].mean(dim=1)
+        elif reduce_mode == "max":
+            tensor = tensor.mean(dim=2).amax(dim=1)
+        else:
+            tensor = tensor.mean(dim=(1, 2))
     elif tensor.ndim == 4:
         # [K,1,H,W] or [K,T,H,W] -> [K,H,W].
-        tensor = tensor.mean(dim=1)
+        if reduce_mode == "phase" and tensor.shape[1] > 1:
+            phase_index = tensor.shape[1] // 2 if phase_index is None else int(phase_index)
+            phase_index = int(np.clip(phase_index, 0, tensor.shape[1] - 1))
+            tensor = tensor[:, phase_index]
+        elif reduce_mode == "max" and tensor.shape[1] > 1:
+            tensor = tensor.amax(dim=1)
+        else:
+            tensor = tensor.mean(dim=1)
     elif tensor.ndim == 3:
         pass
     else:
@@ -252,6 +267,18 @@ def main():
         help="Percentile subtracted from each slice-attention map before coloring. Higher values suppress broad background tint. Default: 60.",
     )
     parser.add_argument(
+        "--slice_reduce",
+        choices=("mean", "max", "phase"),
+        default="mean",
+        help="How to reduce slice attention across DCE phases. Use 'phase' with --slice_phase_index to inspect one phase instead of averaging all phases.",
+    )
+    parser.add_argument(
+        "--slice_phase_index",
+        type=int,
+        default=None,
+        help="DCE phase index used when --slice_reduce phase. Default: middle available phase.",
+    )
+    parser.add_argument(
         "--save_raw_attention",
         action="store_true",
         help="Also save grayscale normalized raw attention maps under raw_maps/. Default: off.",
@@ -265,8 +292,8 @@ def main():
         stem = Path(sample["name"]).stem
         base = normalize_to_uint8(center_pre(sample["image"]))
         maps = sample["output"].get("slice_attention_maps", [])
-        image_slice_attn = reduce_slice_attention(maps[0] if maps else None)
-        kinetic_slice_attn = reduce_slice_attention(maps[1] if len(maps) > 1 else None)
+        image_slice_attn = reduce_slice_attention(maps[0] if maps else None, args.slice_reduce, args.slice_phase_index)
+        kinetic_slice_attn = reduce_slice_attention(maps[1] if len(maps) > 1 else None, args.slice_reduce, args.slice_phase_index)
         wrote_image = save_attention_group(output_root, stem, base, image_slice_attn, "image_slice", sample, args)
         wrote_kinetic = save_attention_group(output_root, stem, base, kinetic_slice_attn, "kinetic_slice", sample, args)
         if wrote_image or wrote_kinetic:
