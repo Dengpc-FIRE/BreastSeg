@@ -31,6 +31,22 @@ def safe_name(label: str) -> str:
     return label.strip("_") or "slice"
 
 
+def display_slice_label(offset: int) -> str:
+    if offset == 0:
+        return "z"
+    if offset < 0:
+        return f"z{offset}"
+    return f"z+{offset}"
+
+
+def slice_file_suffix(offset: int) -> str:
+    if offset == 0:
+        return "z"
+    if offset < 0:
+        return f"z_minus{abs(offset)}"
+    return f"z_plus{offset}"
+
+
 def reduce_slice_attention(attn) -> np.ndarray:
     """Convert a slice-attention tensor to [K,H,W] or [K,1,1]."""
     if attn is None or not torch.is_tensor(attn):
@@ -75,6 +91,15 @@ def finite_values(maps: np.ndarray) -> np.ndarray:
     values = values[np.isfinite(values)]
     return values if values.size else np.asarray([0.0], dtype=np.float32)
 
+def has_spatial_detail(att: np.ndarray) -> bool:
+    att = np.asarray(att, dtype=np.float32)
+    if att.ndim < 2 or att.shape[-2] <= 1 or att.shape[-1] <= 1:
+        return False
+    values = att[np.isfinite(att)]
+    if values.size == 0:
+        return False
+    return float(values.max() - values.min()) > 1e-6
+
 
 def resolve_vmax(maps: np.ndarray, explicit_vmax, percentile):
     if explicit_vmax is not None:
@@ -105,6 +130,25 @@ def attention_overlay_boosted(base: np.ndarray, display_map: np.ndarray, vmin: f
     return cv2.addWeighted(gray_to_bgr(base), 1.0 - alpha, heatmap, alpha, 0)
 
 
+def slice_base(image: torch.Tensor, map_index: int, num_maps: int) -> np.ndarray:
+    """Return the pre-contrast image slice aligned with one slice-attention map."""
+    if not torch.is_tensor(image) or image.ndim < 3:
+        return center_pre(image)
+
+    image_slices = int(image.shape[0])
+    if image_slices <= 0:
+        return center_pre(image)
+
+    if image_slices == num_maps:
+        image_index = map_index
+    else:
+        map_center = num_maps // 2
+        image_center = image_slices // 2
+        image_index = image_center + (map_index - map_center)
+    image_index = int(np.clip(image_index, 0, image_slices - 1))
+    return image[image_index, 0].numpy()
+
+
 def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: np.ndarray, prefix: str, sample, args):
     if maps.size == 0:
         return False
@@ -120,10 +164,16 @@ def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: n
     panels.extend(prediction_context_panels(sample, base))
     for index in indices:
         label = labels[index]
+        offset = index - (maps.shape[0] // 2)
+        display_label = display_slice_label(offset)
         att = maps[index]
-        display_map = resize_map_to_shape(att, base.shape[:2])
+        current_base = normalize_to_uint8(slice_base(sample["image"], index, maps.shape[0]))
+        if has_spatial_detail(att):
+            display_map = resize_map_to_shape(att, current_base.shape[:2])
+        else:
+            display_map = np.zeros(current_base.shape[:2], dtype=np.float32)
         overlay = attention_overlay_boosted(
-            base,
+            current_base,
             display_map,
             vmin=vmin,
             vmax=vmax,
@@ -131,13 +181,16 @@ def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: n
             gamma=args.slice_colormap_gamma,
             boost_start=args.slice_boost_start,
         )
-        panels.append(add_title(overlay, f"{prefix} {label} mean={float(att.mean()):.3f}"))
-        name = safe_name(label)
+        panels.append(add_title(overlay, f"{prefix} {display_label} mean={float(att.mean()):.3f}"))
+        name = safe_name(slice_file_suffix(offset))
         cv2.imwrite(str(output_root / f"{stem}_{prefix}_{name}_attention.png"), overlay)
-        cv2.imwrite(
-            str(output_root / f"{stem}_{prefix}_{name}_attention_raw.png"),
-            normalize_to_uint8_fixed(display_map, vmin=vmin, vmax=vmax),
-        )
+        if args.save_raw_attention:
+            raw_root = output_root / "raw_maps"
+            raw_root.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(
+                str(raw_root / f"{stem}_{prefix}_{name}_attention_raw.png"),
+                normalize_to_uint8_fixed(display_map, vmin=vmin, vmax=vmax),
+            )
     cv2.imwrite(str(output_root / f"{stem}_{prefix}_grid.png"), make_grid(panels, cols=4))
     return True
 
@@ -170,6 +223,11 @@ def main():
         type=float,
         default=0.25,
         help="Normalized attention value where red-boost starts. Lower values affect more area. Default: 0.25.",
+    )
+    parser.add_argument(
+        "--save_raw_attention",
+        action="store_true",
+        help="Also save grayscale normalized raw attention maps under raw_maps/. Default: off.",
     )
     args = parser.parse_args()
 

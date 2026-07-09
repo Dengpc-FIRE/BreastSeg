@@ -325,6 +325,7 @@ class PositionalAttentionModule(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.conv = nn.Conv2d(in_channels=2, out_channels=1, kernel_size=7, padding=3)
+        self.last_attention_map = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: [K,C,H,W]。max/avg 后得到 [1,1,H,W]，再生成空间注意力。
@@ -332,6 +333,7 @@ class PositionalAttentionModule(nn.Module):
         avg_x = torch.mean(x, dim=(0, 1), keepdim=True)
         att = torch.cat((max_x, avg_x), dim=1)
         att = torch.sigmoid(self.conv(att))
+        self.last_attention_map = att.detach()
         return x * att
 
 
@@ -483,7 +485,7 @@ class CSAMSliceAggregation(nn.Module):
             return center, attn
 
         out = features.new_empty((b, t, c, h, w))
-        attn_maps = features.new_empty((b, k, t, 1, 1, 1))
+        attn_maps = features.new_empty((b, k, t, 1, h, w))
         for batch_idx in range(b):
             for phase_idx in range(t):
                 feat = features[batch_idx, :, phase_idx]
@@ -492,13 +494,25 @@ class CSAMSliceAggregation(nn.Module):
                     out[batch_idx, phase_idx] = enhanced[k // 2]
                 else:
                     out[batch_idx, phase_idx] = enhanced.mean(dim=0)
+                if self.csam.positional:
+                    spatial_att = self.csam.positional_att.last_attention_map
+                    if spatial_att is None:
+                        spatial_att = features.new_ones((1, 1, h, w))
+                    spatial_att = spatial_att.to(device=features.device, dtype=features.dtype)
+                    spatial_min = spatial_att.amin(dim=-1, keepdim=True).amin(dim=-2, keepdim=True)
+                    spatial_att = spatial_att - spatial_min
+                    spatial_max = spatial_att.amax(dim=-1, keepdim=True).amax(dim=-2, keepdim=True)
+                    spatial_att = spatial_att / spatial_max.clamp_min(1e-6)
+                else:
+                    spatial_att = features.new_ones((1, 1, h, w))
                 if self.csam.slice:
                     attn = self.csam.slice_att.last_attention_map
                     if attn is None:
                         attn = features.new_ones((k, 1, 1, 1)) / float(k)
-                    attn_maps[batch_idx, :, phase_idx] = attn.to(device=features.device, dtype=features.dtype)
+                    slice_att = attn.to(device=features.device, dtype=features.dtype)
                 else:
-                    attn_maps[batch_idx, :, phase_idx] = features.new_ones((k, 1, 1, 1)) / float(k)
+                    slice_att = features.new_ones((k, 1, 1, 1)) / float(k)
+                attn_maps[batch_idx, :, phase_idx] = slice_att * spatial_att
         self.last_slice_attention_map = attn_maps.detach()
         return out, attn_maps
 
