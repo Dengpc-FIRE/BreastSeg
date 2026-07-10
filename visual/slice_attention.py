@@ -209,6 +209,14 @@ def save_slice_input_grid(output_root: Path, stem: str, image: torch.Tensor, num
         panels.append(add_title(gray_to_bgr(base), f"input {display_slice_label(offset)}"))
     cv2.imwrite(str(output_root / f"{stem}_slice_inputs_grid.png"), make_grid(panels, cols=min(3, max(1, num_maps))))
 
+def compact_prefix(prefix: str) -> str:
+    mapping = {
+        "csam_raw_slice": "raw",
+        "csam_effective_slice": "eff",
+        "image_slice": "img",
+        "kinetic_slice": "kin",
+    }
+    return mapping.get(str(prefix), str(prefix))
 
 def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: np.ndarray, prefix: str, sample, args, weights: np.ndarray | None = None):
     if maps.size == 0:
@@ -254,7 +262,7 @@ def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: n
             gamma=args.slice_colormap_gamma,
             boost_start=args.slice_boost_start,
         )
-        panels.append(add_title(overlay, f"{prefix} {entry['display_label']} weight={float(entry['stat'].mean()):.3f}"))
+        panels.append(add_title(overlay, f"{compact_prefix(prefix)} {entry['display_label']} w={float(entry['stat'].mean()):.3f}"))
         cv2.imwrite(str(output_root / f"{stem}_{prefix}_{entry['name']}_attention.png"), overlay)
         if args.save_raw_attention:
             raw_root = output_root / "raw_maps"
