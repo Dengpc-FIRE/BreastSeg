@@ -79,6 +79,31 @@ def reduce_slice_attention(attn, reduce_mode: str = "mean", phase_index: int | N
         return np.empty((0, 0, 0), dtype=np.float32)
     return tensor.numpy()
 
+def reconstruct_csam_raw_contribution(slice_weights, spatial_maps):
+    """Rebuild raw CSAM contribution as slice gate times shared spatial attention."""
+    if not torch.is_tensor(slice_weights) or not torch.is_tensor(spatial_maps):
+        return None
+    weights = slice_weights.detach().float()
+    spatial = spatial_maps.detach().float()
+    if weights.ndim != 5 or spatial.ndim != 4:
+        return None
+    # weights: [K,T,1,1,1], spatial: [T,1,H,W] -> [K,T,1,H,W]
+    return weights * spatial.unsqueeze(0)
+
+
+def attention_stats(values: np.ndarray) -> str:
+    values = np.asarray(values, dtype=np.float32)
+    if values.size == 0:
+        return "empty"
+    parts = []
+    for index in range(values.shape[0]):
+        current = values[index]
+        parts.append(
+            f"{display_slice_label(index - values.shape[0] // 2)} "
+            f"mean={float(np.nanmean(current)):.6f} "
+            f"max={float(np.nanmax(current)):.6f}"
+        )
+    return "; ".join(parts)
 
 def slice_labels(num_slices: int):
     center = num_slices // 2
@@ -292,7 +317,7 @@ def main():
     parser.add_argument(
         "--slice_raw_csam_gate",
         action="store_true",
-        help="Visualize raw CSAM slice gate instead of model-effective CSAM contribution. Default: off.",
+        help="Only save raw CSAM slice gate for the image branch. Default saves both raw gate and effective contribution when available.",
     )
     parser.add_argument(
         "--save_raw_attention",
@@ -313,18 +338,33 @@ def main():
             save_slice_input_grid(output_root, stem, sample["image"], int(maps[0].shape[0]))
         csam_effective = output.get("csam_effective_contribution_maps")
         csam_contribution = output.get("csam_contribution_maps")
+        if not torch.is_tensor(csam_contribution):
+            csam_contribution = reconstruct_csam_raw_contribution(
+                maps[0] if maps else None,
+                output.get("csam_spatial_attention_maps"),
+            )
         image_slice_weights = reduce_slice_attention(maps[0] if maps else None, args.slice_reduce, args.slice_phase_index)
+        wrote_image = False
+        debug_lines = [
+            f"sample={stem}",
+            f"slice_attention_type={output.get('slice_attention_type')}",
+            f"csam_enabled={output.get('csam_enabled')}",
+            f"csam_aggregate={output.get('csam_aggregate')}",
+            f"slice_weight_stats={attention_stats(image_slice_weights)}",
+        ]
+        if torch.is_tensor(csam_contribution):
+            image_slice_raw = reduce_slice_attention(csam_contribution, args.slice_reduce, args.slice_phase_index)
+            debug_lines.append(f"raw_contribution_stats={attention_stats(image_slice_raw)}")
+            wrote_image = save_attention_group(output_root, stem, base, image_slice_raw, "csam_raw_slice", sample, args, weights=image_slice_weights) or wrote_image
+        elif image_slice_weights.size:
+            debug_lines.append("raw_contribution_stats=missing")
+            wrote_image = save_attention_group(output_root, stem, base, image_slice_weights, "image_slice", sample, args, weights=image_slice_weights) or wrote_image
         if torch.is_tensor(csam_effective) and not args.slice_raw_csam_gate:
-            image_slice_attn = reduce_slice_attention(csam_effective, args.slice_reduce, args.slice_phase_index)
-            image_prefix = "csam_effective_slice"
-        elif torch.is_tensor(csam_contribution):
-            image_slice_attn = reduce_slice_attention(csam_contribution, args.slice_reduce, args.slice_phase_index)
-            image_prefix = "csam_raw_slice"
-        else:
-            image_slice_attn = image_slice_weights
-            image_prefix = "image_slice"
+            image_slice_effective = reduce_slice_attention(csam_effective, args.slice_reduce, args.slice_phase_index)
+            debug_lines.append(f"effective_contribution_stats={attention_stats(image_slice_effective)}")
+            wrote_image = save_attention_group(output_root, stem, base, image_slice_effective, "csam_effective_slice", sample, args, weights=image_slice_weights) or wrote_image
+        (output_root / f"{stem}_slice_attention_debug.txt").write_text("\n".join(debug_lines) + "\n", encoding="utf-8")
         kinetic_slice_attn = reduce_slice_attention(maps[1] if len(maps) > 1 else None, args.slice_reduce, args.slice_phase_index)
-        wrote_image = save_attention_group(output_root, stem, base, image_slice_attn, image_prefix, sample, args, weights=image_slice_weights)
         wrote_kinetic = save_attention_group(output_root, stem, base, kinetic_slice_attn, "kinetic_slice", sample, args)
         if wrote_image or wrote_kinetic:
             saved += 1
