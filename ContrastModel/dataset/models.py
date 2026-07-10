@@ -370,7 +370,7 @@ class PDPNetWrapper(nn.Module):
 
 
 def _build_transunet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("networks"), prepend_sys_path(model_dir):
         vit = importlib.import_module("networks.vit_seg_modeling")
         vit_name = cfg["model"].get("vit_name", "R50-ViT-B_16")
         config_vit = copy.deepcopy(vit.CONFIGS[vit_name])
@@ -416,7 +416,7 @@ def _build_transunet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 
 def _build_mobile_uvit(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("network"), prepend_sys_path(model_dir):
         module = importlib.import_module("network.MobileUViT")
         factory = getattr(module, cfg["model"].get("variant", "mobileuvit"))
         kwargs = {
@@ -429,7 +429,7 @@ def _build_mobile_uvit(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
         return factory(**kwargs)
 
 def _build_emcad(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("lib"), prepend_sys_path(model_dir):
         module = importlib.import_module("lib.networks")
         model = module.EMCADNet(
             num_classes=cfg["model"]["out_channels"],
@@ -441,7 +441,7 @@ def _build_emcad(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 
 def _build_deeplab(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("network"), prepend_sys_path(model_dir):
         module = importlib.import_module("network.modeling")
         arch = cfg["model"].get("arch", "deeplabv3plus_mobilenet")
         pretrained_backbone = bool(
@@ -456,7 +456,7 @@ def _build_deeplab(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
         return model
 
 def _build_pytorch_unet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("unet"), prepend_sys_path(model_dir):
         module = importlib.import_module("unet")
         return module.UNet(
             n_channels=cfg["model"]["input_channels"],
@@ -466,7 +466,7 @@ def _build_pytorch_unet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 
 def _build_msdahnet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("resunet"), prepend_sys_path(model_dir):
         module = importlib.import_module("resunet")
         return module.DualA_Net(
             in_channels=cfg["model"]["input_channels"],
@@ -475,7 +475,7 @@ def _build_msdahnet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 
 def _build_attention_gated(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("models"), prepend_sys_path(model_dir):
         network = cfg["model"].get("network", "unet_nonlocal")
         if network in {"attention_unet", "att_unet", "attention_gate_unet"}:
             return AttentionUNet2D(
@@ -517,7 +517,7 @@ def _build_pdpnet(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 
 def _build_hcrt(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("Model"), prepend_sys_path(model_dir):
         module = importlib.import_module("Model.HCRT")
         return module.HCRT(
             inch=cfg["model"]["input_channels"],
@@ -529,7 +529,7 @@ def _build_hcrt(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
 
 
 def _build_plhn(model_dir: Path, cfg: Dict[str, Any]) -> nn.Module:
-    with prepend_sys_path(model_dir):
+    with isolated_import_prefixes("Model"), prepend_sys_path(model_dir):
         module = importlib.import_module("Model.TokenSegV8_prototype_fusion_attentions")
         model = module.TokenSegV8(
             inch=cfg["model"]["input_channels"],
