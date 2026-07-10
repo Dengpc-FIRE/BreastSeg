@@ -1,0 +1,117 @@
+# Multi-model segmentation overlay comparison.
+#
+# Output layout:
+#   visual/test/masks/<slice_id>/<ModelName>.png
+#
+# Supported model modes:
+#   kpta25d     Run the KPTA/SPTA 2.5D model through visual.common.iter_outputs.
+#   contrast2d  Run a ContrastModel 2D model config/checkpoint.
+#   mask_dir    Read existing predicted masks/probability maps and overlay them on pre images.
+
+output_dir: visual/test/masks
+overlay_alpha: 0.55
+
+# Used by mode: mask_dir, and also as a common reference for sample ids.
+base:
+  mode: kpta25d
+  split_path: processed_25d_dce/test
+
+models:
+  - name: UNet
+    mode: contrast2d
+    model_dir: ContrastModel/Pytorch-UNet-master
+    model_key: pytorch_unet
+    config: ContrastModel/Pytorch-UNet-master/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/Pytorch-UNet-master/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  - name: AttentionU-Net
+    mode: contrast2d
+    model_dir: ContrastModel/Attention-Gated-Networks-master
+    model_key: attention_gated
+    config: ContrastModel/Attention-Gated-Networks-master/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/Attention-Gated-Networks-master/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  - name: UNet++
+    mode: contrast2d
+    model_dir: ContrastModel/UNetPlusPlus-master
+    model_key: unetplusplus
+    config: ContrastModel/UNetPlusPlus-master/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/UNetPlusPlus-master/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  - name: DeepLabV3++
+    mode: contrast2d
+    model_dir: ContrastModel/DeepLabV3Plus-Pytorch-master
+    model_key: deeplabv3plus
+    config: ContrastModel/DeepLabV3Plus-Pytorch-master/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/DeepLabV3Plus-Pytorch-master/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  - name: TransUNet
+    mode: contrast2d
+    model_dir: ContrastModel/TransUNet-main
+    model_key: transunet
+    config: ContrastModel/TransUNet-main/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/TransUNet-main/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  - name: EMCAD
+    mode: contrast2d
+    model_dir: ContrastModel/EMCAD-main
+    model_key: emcad
+    config: ContrastModel/EMCAD-main/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/EMCAD-main/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  - name: Mobile U-ViT
+    mode: contrast2d
+    model_dir: ContrastModel/Mobile-U-ViT-main
+    model_key: mobile_uvit
+    config: ContrastModel/Mobile-U-ViT-main/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/Mobile-U-ViT-main/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  - name: MSDAHNet
+    mode: contrast2d
+    model_dir: ContrastModel/Multi-Scale-Dual-Attention-Hybrid-Convolution-Network-main
+    model_key: msdahnet
+    config: ContrastModel/Multi-Scale-Dual-Attention-Hybrid-Convolution-Network-main/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/Multi-Scale-Dual-Attention-Hybrid-Convolution-Network-main/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  - name: PDPNet
+    mode: contrast2d
+    model_dir: ContrastModel/PDPNet-main
+    model_key: pdpnet
+    config: ContrastModel/PDPNet-main/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/PDPNet-main/checkpoints/best_model.pth
+    split: test
+    threshold: 0.5
+
+  # HCRT is configured as a 3D model in ContrastModel/HCRT-main/configs/breastdm_17ch.yaml.
+  # Generate its test masks first, then point mask_dir to those predicted masks.
+  - name: HCRT
+    mode: mask_dir
+    config: ContrastModel/HCRT-main/configs/breastdm_17ch.yaml
+    checkpoint: ContrastModel/HCRT-main/checkpoints/best_model.pth
+    mask_dir: ContrastModel/HCRT-main/test_results/predictions
+    threshold: 0.5
+
+  - name: SPTA-Net(kpta)
+    mode: kpta25d
+    config: configs/kpta_25d_net_lr2e-4-bce0.3-uncertainty0.0125-attentiono0.00125-thickness4-boundary0.05-rs0.125.yaml
+    checkpoint: results_kpta_25d_net/best_model_kpta_25d_net_lr2e-4-bce0.3-uncertainty0.0125-attentiono0.00125-thickness4-boundary0.05-rs0.125.pth
+    split: test
+    threshold: 0.5
+    batch_size: 4
+    num_workers: 4
