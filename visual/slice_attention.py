@@ -175,6 +175,15 @@ def slice_base(image: torch.Tensor, map_index: int, num_maps: int) -> np.ndarray
     image_index = int(np.clip(image_index, 0, image_slices - 1))
     return image[image_index, 0].numpy()
 
+def save_slice_input_grid(output_root: Path, stem: str, image: torch.Tensor, num_maps: int) -> None:
+    panels = []
+    center = num_maps // 2
+    for index in range(num_maps):
+        offset = index - center
+        base = normalize_to_uint8(slice_base(image, index, num_maps))
+        panels.append(add_title(gray_to_bgr(base), f"input {display_slice_label(offset)}"))
+    cv2.imwrite(str(output_root / f"{stem}_slice_inputs_grid.png"), make_grid(panels, cols=min(3, max(1, num_maps))))
+
 
 def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: np.ndarray, prefix: str, sample, args, weights: np.ndarray | None = None):
     if maps.size == 0:
@@ -281,6 +290,11 @@ def main():
         help="DCE phase index used when --slice_reduce phase. Default: middle available phase.",
     )
     parser.add_argument(
+        "--slice_raw_csam_gate",
+        action="store_true",
+        help="Visualize raw CSAM slice gate instead of model-effective CSAM contribution. Default: off.",
+    )
+    parser.add_argument(
         "--save_raw_attention",
         action="store_true",
         help="Also save grayscale normalized raw attention maps under raw_maps/. Default: off.",
@@ -295,11 +309,17 @@ def main():
         base = normalize_to_uint8(center_pre(sample["image"]))
         output = sample["output"]
         maps = output.get("slice_attention_maps", [])
+        if maps:
+            save_slice_input_grid(output_root, stem, sample["image"], int(maps[0].shape[0]))
+        csam_effective = output.get("csam_effective_contribution_maps")
         csam_contribution = output.get("csam_contribution_maps")
         image_slice_weights = reduce_slice_attention(maps[0] if maps else None, args.slice_reduce, args.slice_phase_index)
-        if torch.is_tensor(csam_contribution):
+        if torch.is_tensor(csam_effective) and not args.slice_raw_csam_gate:
+            image_slice_attn = reduce_slice_attention(csam_effective, args.slice_reduce, args.slice_phase_index)
+            image_prefix = "csam_effective_slice"
+        elif torch.is_tensor(csam_contribution):
             image_slice_attn = reduce_slice_attention(csam_contribution, args.slice_reduce, args.slice_phase_index)
-            image_prefix = "csam_slice"
+            image_prefix = "csam_raw_slice"
         else:
             image_slice_attn = image_slice_weights
             image_prefix = "image_slice"

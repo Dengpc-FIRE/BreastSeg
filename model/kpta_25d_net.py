@@ -473,6 +473,7 @@ class CSAMSliceAggregation(nn.Module):
         self.last_slice_attention_map = None
         self.last_csam_spatial_attention = None
         self.last_csam_contribution_maps = None
+        self.last_csam_effective_contribution_maps = None
 
     def forward(self, features: torch.Tensor):
         if features.ndim != 6:
@@ -486,12 +487,14 @@ class CSAMSliceAggregation(nn.Module):
             self.last_slice_attention_map = attn.detach()
             self.last_csam_spatial_attention = None
             self.last_csam_contribution_maps = None
+            self.last_csam_effective_contribution_maps = None
             return center, attn
 
         out = features.new_empty((b, t, c, h, w))
         attn_maps = features.new_empty((b, k, t, 1, 1, 1))
         spatial_maps = features.new_empty((b, t, 1, h, w))
         contribution_maps = features.new_empty((b, k, t, 1, h, w))
+        effective_contribution_maps = features.new_zeros((b, k, t, 1, h, w))
         for batch_idx in range(b):
             for phase_idx in range(t):
                 feat = features[batch_idx, :, phase_idx]
@@ -517,9 +520,14 @@ class CSAMSliceAggregation(nn.Module):
                 attn_maps[batch_idx, :, phase_idx] = slice_att
                 spatial_maps[batch_idx, phase_idx] = spatial_att
                 contribution_maps[batch_idx, :, phase_idx] = slice_att * spatial_att
+                if self.aggregate == "center":
+                    effective_contribution_maps[batch_idx, k // 2, phase_idx] = slice_att[k // 2] * spatial_att
+                else:
+                    effective_contribution_maps[batch_idx, :, phase_idx] = (slice_att * spatial_att) / float(k)
         self.last_slice_attention_map = attn_maps.detach()
         self.last_csam_spatial_attention = spatial_maps.detach()
         self.last_csam_contribution_maps = contribution_maps.detach()
+        self.last_csam_effective_contribution_maps = effective_contribution_maps.detach()
         return out, attn_maps
 
 
@@ -1188,6 +1196,7 @@ class KPTA25DNet(nn.Module):
         if slice_attention_type not in {"simple", "csam"}:
             raise ValueError(f"slice_attention_type must be 'simple' or 'csam', got {slice_attention_type}")
         self.slice_attention_type = slice_attention_type
+        self.csam_aggregate = csam_aggregate
         if phase_attention_type not in {"pixelwise", "pdwa"}:
             raise ValueError(f"phase_attention_type must be 'pixelwise' or 'pdwa', got {phase_attention_type}")
         self.phase_attention_type = phase_attention_type
@@ -1312,6 +1321,7 @@ class KPTA25DNet(nn.Module):
         context_features, slice_attention_maps = self.slice_agg(slice_phase_features)
         csam_spatial_attention_maps = getattr(self.slice_agg, "last_csam_spatial_attention", None)
         csam_contribution_maps = getattr(self.slice_agg, "last_csam_contribution_maps", None)
+        csam_effective_contribution_maps = getattr(self.slice_agg, "last_csam_effective_contribution_maps", None)
         # 编码 kinetic maps，得到动力学先验特征：【B,K,M,H,W】->【B,C,H,W】。
         kinetic_feature, kinetic_slice_attention = self.kinetic_branch(kinetic_maps)
         # 用 kinetic feature 引导像素级 phase attention：
@@ -1382,8 +1392,10 @@ class KPTA25DNet(nn.Module):
             "slice_attention_maps": [slice_attention_maps, kinetic_slice_attention],
             "csam_spatial_attention_maps": csam_spatial_attention_maps,
             "csam_contribution_maps": csam_contribution_maps,
+            "csam_effective_contribution_maps": csam_effective_contribution_maps,
             "slice_attention_type": self.slice_attention_type,
             "csam_enabled": self.csam_enabled,
+                "csam_aggregate": self.csam_aggregate,
             "phase_attention_type": self.phase_attention_type,
             "pdwa_debug": phase_debug if self.phase_attention_type == "pdwa" else {},
             "debug": {
@@ -1392,6 +1404,7 @@ class KPTA25DNet(nn.Module):
                 "num_kinetic_maps": kinetic_maps.shape[2],
                 "slice_attention_type": self.slice_attention_type,
                 "csam_enabled": self.csam_enabled,
+                "csam_aggregate": self.csam_aggregate,
                 "phase_attention_type": self.phase_attention_type,
                 "sub_maps_shape": None if sub_maps is None else tuple(sub_maps.shape),
                 "disable_kinetic_raw_fusion": self.disable_kinetic_raw_fusion,
