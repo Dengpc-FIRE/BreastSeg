@@ -456,7 +456,7 @@ class CSAMSliceAggregation(nn.Module):
         rank: int = 5,
     ) -> None:
         super().__init__()
-        if aggregate not in {"center", "mean"}:
+        if aggregate not in {"center", "mean", "weighted_sum"}:
             raise ValueError(f"Unknown CSAM aggregate mode: {aggregate}")
         self.num_slices = num_slices
         self.aggregate = aggregate
@@ -499,10 +499,6 @@ class CSAMSliceAggregation(nn.Module):
             for phase_idx in range(t):
                 feat = features[batch_idx, :, phase_idx]
                 enhanced = self.csam(feat)
-                if self.aggregate == "center":
-                    out[batch_idx, phase_idx] = enhanced[k // 2]
-                else:
-                    out[batch_idx, phase_idx] = enhanced.mean(dim=0)
                 if self.csam.positional:
                     spatial_att = self.csam.positional_att.last_attention_map
                     if spatial_att is None:
@@ -517,13 +513,21 @@ class CSAMSliceAggregation(nn.Module):
                     slice_att = attn.to(device=features.device, dtype=features.dtype)
                 else:
                     slice_att = features.new_ones((k, 1, 1, 1)) / float(k)
+                if self.aggregate == "center":
+                    out[batch_idx, phase_idx] = enhanced[k // 2]
+                    effective_weights = features.new_zeros((k, 1, 1, 1))
+                    effective_weights[k // 2] = slice_att[k // 2]
+                elif self.aggregate == "weighted_sum":
+                    denom = slice_att.sum(dim=0, keepdim=True).clamp_min(1e-6)
+                    out[batch_idx, phase_idx] = enhanced.sum(dim=0) / denom.squeeze(0)
+                    effective_weights = slice_att / denom
+                else:
+                    out[batch_idx, phase_idx] = enhanced.mean(dim=0)
+                    effective_weights = slice_att / float(k)
                 attn_maps[batch_idx, :, phase_idx] = slice_att
                 spatial_maps[batch_idx, phase_idx] = spatial_att
                 contribution_maps[batch_idx, :, phase_idx] = slice_att * spatial_att
-                if self.aggregate == "center":
-                    effective_contribution_maps[batch_idx, k // 2, phase_idx] = slice_att[k // 2] * spatial_att
-                else:
-                    effective_contribution_maps[batch_idx, :, phase_idx] = (slice_att * spatial_att) / float(k)
+                effective_contribution_maps[batch_idx, :, phase_idx] = effective_weights * spatial_att
         self.last_slice_attention_map = attn_maps.detach()
         self.last_csam_spatial_attention = spatial_maps.detach()
         self.last_csam_contribution_maps = contribution_maps.detach()
