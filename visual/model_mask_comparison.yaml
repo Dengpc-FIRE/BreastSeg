@@ -98,14 +98,13 @@ models:
     split: test
     threshold: 0.5
 
-  # HCRT is configured as a 3D model in ContrastModel/HCRT-main/configs/breastdm_17ch.yaml.
-  # Generate its test masks first, then point mask_dir to those predicted masks.
   - name: HCRT
-    mode: mask_dir
+    mode: contrast3d
+    model_dir: ContrastModel/HCRT-main
+    model_key: hcrt
     config: ContrastModel/HCRT-main/configs/breastdm_17ch.yaml
     checkpoint: ContrastModel/HCRT-main/checkpoints/best_model.pth
-    mask_dir: ContrastModel/HCRT-main/test_results/predictions
-    skip_missing: true
+    split: test
     threshold: 0.5
 
   - name: SPTA-Net(kpta)

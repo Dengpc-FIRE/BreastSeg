@@ -82,18 +82,6 @@ def write_overlay(
     return output_path
 
 
-def find_existing_mask(mask_dir: Path, sample_id: str) -> Path | None:
-    for suffix in IMAGE_EXTENSIONS:
-        candidate = mask_dir / f"{sample_id}{suffix}"
-        if candidate.is_file():
-            return candidate
-    matches = sorted(mask_dir.rglob(f"{sample_id}.*"))
-    for match in matches:
-        if match.suffix.lower() in IMAGE_EXTENSIONS and match.is_file():
-            return match
-    return None
-
-
 def load_base_images(cfg: dict[str, Any]) -> dict[str, np.ndarray]:
     base_cfg = cfg.get("base", {})
     split_path = base_cfg.get("split_path")
@@ -120,6 +108,96 @@ def load_base_images(cfg: dict[str, Any]) -> dict[str, np.ndarray]:
             raise ValueError(f"Unknown base.mode={mode!r}")
         base_images[npy_path.stem] = base.astype(np.float32)
     return base_images
+
+
+def load_base_masks(cfg: dict[str, Any]) -> dict[str, np.ndarray]:
+    base_cfg = cfg.get("base", {})
+    split_path = base_cfg.get("split_path")
+    if not split_path:
+        return {}
+    gt_dir = Path(split_path) / "GT"
+    if not gt_dir.is_dir():
+        return {}
+    masks: dict[str, np.ndarray] = {}
+    for path in sorted(gt_dir.iterdir()):
+        if path.suffix.lower() in IMAGE_EXTENSIONS:
+            masks[path.stem] = load_mask_file(path)
+    return masks
+
+
+def write_gt_overlays(
+    output_root: Path,
+    base_images: dict[str, np.ndarray],
+    base_masks: dict[str, np.ndarray],
+    alpha: float,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for sample_id, mask in sorted(base_masks.items()):
+        base = base_images.get(sample_id)
+        if base is None:
+            continue
+        path = write_overlay(output_root, sample_id, "GT", base, mask, alpha)
+        rows.append({"sample_id": sample_id, "model": "GT", "path": str(path)})
+    return rows
+
+
+def find_existing_mask(mask_dir: Path, sample_id: str) -> Path | None:
+    for suffix in IMAGE_EXTENSIONS:
+        candidate = mask_dir / f"{sample_id}{suffix}"
+        if candidate.is_file():
+            return candidate
+    matches = sorted(mask_dir.rglob(f"{sample_id}.*"))
+    for match in matches:
+        if match.suffix.lower() in IMAGE_EXTENSIONS and match.is_file():
+            return match
+    return None
+
+
+def phase_slice_stems(cfg: dict[str, Any], split: str, patient_id: str, depth: int) -> list[str]:
+    data_cfg = cfg.get("data", {})
+    raw_root = Path(data_cfg.get("raw_dataset_root", ""))
+    phase_names = data_cfg.get("phase_names") or []
+    patient_root = raw_root / split / "images" / patient_id
+    phase_dirs = [patient_root / str(name) for name in phase_names]
+    if patient_root.is_dir():
+        phase_dirs.extend(path for path in patient_root.iterdir() if path.is_dir())
+    for phase_dir in phase_dirs:
+        if not phase_dir.is_dir():
+            continue
+        files = []
+        for suffix in IMAGE_EXTENSIONS:
+            files.extend(phase_dir.glob(f"*{suffix}"))
+        files = sorted(files)
+        if len(files) == depth:
+            return [path.stem for path in files]
+    return [f"p-{index:03d}" for index in range(depth)]
+
+
+def resolve_slice_id(
+    patient_id: str,
+    slice_stem: str,
+    index: int,
+    base_images: dict[str, np.ndarray],
+) -> str:
+    candidates = [
+        f"{patient_id}_{slice_stem}",
+        f"{patient_id}_p-{index:03d}",
+        f"{patient_id}_{index:03d}",
+        f"{patient_id}_p-{index + 1:03d}",
+        f"{patient_id}_{index + 1:03d}",
+    ]
+    for candidate in candidates:
+        if candidate in base_images:
+            return candidate
+    prefix = f"{patient_id}_"
+    suffix = slice_stem.replace("p-", "").lstrip("0")
+    for sample_id in base_images:
+        if sample_id.startswith(prefix) and sample_id.endswith(slice_stem):
+            return sample_id
+        tail = sample_id.split("_")[-1].replace("p-", "").lstrip("0")
+        if suffix and sample_id.startswith(prefix) and tail == suffix:
+            return sample_id
+    return candidates[0]
 
 
 def run_kpta25d_model(
@@ -158,12 +236,7 @@ def run_contrast2d_model(
     written: list[dict[str, str]],
 ) -> None:
     from ContrastModel.dataset.config import load_config as load_contrast_config
-    from ContrastModel.dataset.training import (
-        _load_model_for_test,
-        _move_batch,
-        make_dataset,
-        make_loader,
-    )
+    from ContrastModel.dataset.training import _load_model_for_test, _move_batch, make_dataset, make_loader
     from ContrastModel.dataset.models import align_logits, forward_model
     from inference.whole_breast_constraint import build_whole_breast_constraint
 
@@ -182,10 +255,7 @@ def run_contrast2d_model(
 
     mode = str(cfg["data"].get("mode", "2d")).lower()
     if mode != "2d":
-        raise ValueError(
-            f"{label} uses data.mode={mode!r}. This comparison script supports direct "
-            "inference for 2D contrast models only. Generate masks first and use mode: mask_dir."
-        )
+        raise ValueError(f"{label} uses data.mode={mode!r}; use mode: contrast3d for 3D models.")
 
     device = torch.device(model_cfg.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
     checkpoint = model_cfg.get("checkpoint") or (Path(cfg["output"]["checkpoint_dir"]) / "best_model.pth")
@@ -196,11 +266,7 @@ def run_contrast2d_model(
     dataset = make_dataset(cfg, split, train=False)
     loader = make_loader(dataset, cfg, shuffle=False, batch_size=int(model_cfg.get("batch_size", cfg["train"].get("batch_size", 4))))
     threshold = float(cfg["eval"].get("threshold", 0.5))
-    whole_breast = build_whole_breast_constraint(
-        cfg,
-        device=device,
-        output_path=Path(cfg["output"]["test_dir"]).parent,
-    )
+    whole_breast = build_whole_breast_constraint(cfg, device=device, output_path=Path(cfg["output"]["test_dir"]).parent)
 
     use_amp = bool(model_cfg.get("amp", cfg["train"].get("amp", True))) and device.type == "cuda"
     with torch.inference_mode():
@@ -220,6 +286,55 @@ def run_contrast2d_model(
                 base = image[0]
                 path = write_overlay(output_root, str(sample_id), label, base, pred, alpha)
                 written.append({"sample_id": str(sample_id), "model": label, "path": str(path)})
+
+
+def run_contrast3d_model(
+    model_cfg: dict[str, Any],
+    output_root: Path,
+    base_images: dict[str, np.ndarray],
+    alpha: float,
+    written: list[dict[str, str]],
+) -> None:
+    from ContrastModel.dataset.config import load_config as load_contrast_config
+    from ContrastModel.dataset.training import _load_model_for_test, make_dataset, sliding_window_predict_3d
+
+    label = str(model_cfg["name"])
+    model_dir = Path(model_cfg["model_dir"])
+    model_key = str(model_cfg["model_key"])
+    cfg = load_contrast_config(model_cfg["config"], model_dir=model_dir, model_key=model_key)
+    if "threshold" in model_cfg:
+        cfg["eval"]["threshold"] = float(model_cfg["threshold"])
+
+    mode = str(cfg["data"].get("mode", "3d")).lower()
+    if mode != "3d":
+        raise ValueError(f"{label} uses data.mode={mode!r}; use mode: contrast2d for 2D models.")
+
+    device = torch.device(model_cfg.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
+    checkpoint = model_cfg.get("checkpoint") or (Path(cfg["output"]["checkpoint_dir"]) / "best_model.pth")
+    model = _load_model_for_test(model_dir, model_key, cfg, checkpoint, device)
+    model.eval()
+
+    split = str(model_cfg.get("split", "test"))
+    dataset = make_dataset(cfg, split, train=False)
+    threshold = float(cfg["eval"].get("threshold", 0.5))
+    use_amp = bool(model_cfg.get("amp", cfg["train"].get("amp", True))) and device.type == "cuda"
+
+    with torch.inference_mode():
+        for sample in tqdm(dataset, desc=f"{label} masks"):
+            patient_id = str(sample["id"])
+            image = sample["image"][None].to(device=device, dtype=torch.float32)
+            with torch.amp.autocast("cuda", enabled=use_amp):
+                logits = sliding_window_predict_3d(model, image, cfg, device)
+                probabilities = torch.sigmoid(logits)[0, 0].detach().float().cpu().numpy()
+            slice_stems = phase_slice_stems(cfg, split, patient_id, probabilities.shape[0])
+            for index, probability in enumerate(probabilities):
+                sample_id = resolve_slice_id(patient_id, slice_stems[index], index, base_images)
+                base = base_images.get(sample_id)
+                if base is None:
+                    base = sample["image"][0, index].detach().float().cpu().numpy()
+                pred = binary_mask_from_probability(probability, threshold)
+                path = write_overlay(output_root, sample_id, label, base, pred, alpha)
+                written.append({"sample_id": sample_id, "model": label, "path": str(path)})
 
 
 def run_mask_dir_model(
@@ -273,8 +388,9 @@ def main() -> None:
     output_root.mkdir(parents=True, exist_ok=True)
     alpha = float(cfg.get("overlay_alpha", 0.55))
     base_images = load_base_images(cfg)
+    base_masks = load_base_masks(cfg)
     selected = set(args.only or [])
-    written: list[dict[str, str]] = []
+    written: list[dict[str, str]] = write_gt_overlays(output_root, base_images, base_masks, alpha)
 
     for model_cfg in cfg.get("models", []):
         if model_cfg.get("enabled", True) is False:
@@ -287,6 +403,8 @@ def main() -> None:
             run_kpta25d_model(model_cfg, output_root, alpha, written)
         elif mode in {"contrast2d", "contrast", "2d"}:
             run_contrast2d_model(model_cfg, output_root, alpha, written)
+        elif mode in {"contrast3d", "3d", "hcrt"}:
+            run_contrast3d_model(model_cfg, output_root, base_images, alpha, written)
         elif mode in {"mask_dir", "predictions", "existing"}:
             run_mask_dir_model(model_cfg, output_root, base_images, alpha, written)
         else:
