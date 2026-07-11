@@ -10,6 +10,7 @@
 
 output_dir: visual/test/masks
 overlay_alpha: 0.55
+target_model: SPTA-Net(kpta)
 
 # Used by mode: mask_dir, and also as a common reference for sample ids.
 base:

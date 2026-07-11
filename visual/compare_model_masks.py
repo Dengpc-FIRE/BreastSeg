@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import csv
 import sys
+import zipfile
 from argparse import Namespace
+from html import escape as xml_escape
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +52,39 @@ def read_yaml(path: Path) -> dict[str, Any]:
 def binary_mask_from_probability(probability: np.ndarray, threshold: float) -> np.ndarray:
     probability = np.nan_to_num(np.asarray(probability, dtype=np.float32), nan=0.0)
     return (probability >= float(threshold)).astype(np.uint8)
+
+
+def resize_binary_mask(mask: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    mask = np.asarray(mask)
+    if mask.shape == shape:
+        return (mask > 0).astype(np.uint8)
+    resized = cv2.resize(mask.astype(np.uint8), (shape[1], shape[0]), interpolation=cv2.INTER_NEAREST)
+    return (resized > 0).astype(np.uint8)
+
+
+def dice_score(pred: np.ndarray, target: np.ndarray) -> float:
+    pred_bool = np.asarray(pred).astype(bool)
+    target_bool = np.asarray(target).astype(bool)
+    denominator = int(pred_bool.sum() + target_bool.sum())
+    if denominator == 0:
+        return 1.0
+    intersection = int(np.logical_and(pred_bool, target_bool).sum())
+    return float(2.0 * intersection / denominator)
+
+
+def record_dice(
+    dice_table: dict[str, dict[str, Any]],
+    sample_id: str,
+    model_label: str,
+    pred: np.ndarray,
+    base_masks: dict[str, np.ndarray],
+) -> None:
+    gt = base_masks.get(sample_id)
+    if gt is None:
+        return
+    pred = resize_binary_mask(pred, gt.shape)
+    row = dice_table.setdefault(sample_id, {"sample_id": sample_id})
+    row[model_label] = dice_score(pred, gt)
 
 
 def load_mask_file(path: Path, threshold: float = 0.5) -> np.ndarray:
@@ -205,6 +240,8 @@ def run_kpta25d_model(
     output_root: Path,
     alpha: float,
     written: list[dict[str, str]],
+    base_masks: dict[str, np.ndarray],
+    dice_table: dict[str, dict[str, Any]],
 ) -> None:
     label = str(model_cfg["name"])
     args = Namespace(
@@ -225,6 +262,7 @@ def run_kpta25d_model(
         base = center_pre(sample["image"])
         probability = sample["probability"][0].numpy()
         pred = binary_mask_from_probability(probability, sample["threshold"])
+        record_dice(dice_table, sample_id, label, pred, base_masks)
         path = write_overlay(output_root, sample_id, label, base, pred, alpha)
         written.append({"sample_id": sample_id, "model": label, "path": str(path)})
 
@@ -234,6 +272,8 @@ def run_contrast2d_model(
     output_root: Path,
     alpha: float,
     written: list[dict[str, str]],
+    base_masks: dict[str, np.ndarray],
+    dice_table: dict[str, dict[str, Any]],
 ) -> None:
     from ContrastModel.dataset.config import load_config as load_contrast_config
     from ContrastModel.dataset.training import _load_model_for_test, _move_batch, make_dataset, make_loader
@@ -282,10 +322,12 @@ def run_contrast2d_model(
             probs = probabilities.detach().float().cpu().numpy()[:, 0]
             images_cpu = images.detach().float().cpu().numpy()
             for probability, image, sample_id in zip(probs, images_cpu, ids):
+                sample_id = str(sample_id)
                 pred = binary_mask_from_probability(probability, threshold)
                 base = image[0]
-                path = write_overlay(output_root, str(sample_id), label, base, pred, alpha)
-                written.append({"sample_id": str(sample_id), "model": label, "path": str(path)})
+                record_dice(dice_table, sample_id, label, pred, base_masks)
+                path = write_overlay(output_root, sample_id, label, base, pred, alpha)
+                written.append({"sample_id": sample_id, "model": label, "path": str(path)})
 
 
 def run_contrast3d_model(
@@ -294,6 +336,8 @@ def run_contrast3d_model(
     base_images: dict[str, np.ndarray],
     alpha: float,
     written: list[dict[str, str]],
+    base_masks: dict[str, np.ndarray],
+    dice_table: dict[str, dict[str, Any]],
 ) -> None:
     from ContrastModel.dataset.config import load_config as load_contrast_config
     from ContrastModel.dataset.training import _load_model_for_test, make_dataset, sliding_window_predict_3d
@@ -333,6 +377,7 @@ def run_contrast3d_model(
                 if base is None:
                     base = sample["image"][0, index].detach().float().cpu().numpy()
                 pred = binary_mask_from_probability(probability, threshold)
+                record_dice(dice_table, sample_id, label, pred, base_masks)
                 path = write_overlay(output_root, sample_id, label, base, pred, alpha)
                 written.append({"sample_id": sample_id, "model": label, "path": str(path)})
 
@@ -343,6 +388,8 @@ def run_mask_dir_model(
     base_images: dict[str, np.ndarray],
     alpha: float,
     written: list[dict[str, str]],
+    base_masks: dict[str, np.ndarray],
+    dice_table: dict[str, dict[str, Any]],
 ) -> None:
     label = str(model_cfg["name"])
     mask_dir = Path(model_cfg["mask_dir"])
@@ -360,6 +407,7 @@ def run_mask_dir_model(
         if mask_path is None:
             continue
         pred = load_mask_file(mask_path, threshold=threshold)
+        record_dice(dice_table, sample_id, label, pred, base_masks)
         path = write_overlay(output_root, sample_id, label, base, pred, alpha)
         written.append({"sample_id": sample_id, "model": label, "path": str(path)})
 
@@ -370,6 +418,153 @@ def write_manifest(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(handle, fieldnames=["sample_id", "model", "path"])
         writer.writeheader()
         writer.writerows(rows)
+
+
+def numeric_value(value: Any) -> float | None:
+    if value in {None, ""}:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(number):
+        return None
+    return number
+
+
+def build_dice_rows(
+    dice_table: dict[str, dict[str, Any]],
+    model_names: list[str],
+    target_label: str,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    headers = [
+        "sample_id",
+        "GT",
+        *model_names,
+        "target_model",
+        "best_baseline_model",
+        "best_baseline_dice",
+        "mean_baseline_dice",
+        "target_dice",
+        "target_minus_best_baseline",
+        "target_rank",
+    ]
+    rows: list[dict[str, Any]] = []
+    baseline_names = [name for name in model_names if name != target_label]
+    for sample_id in sorted(dice_table):
+        source = dice_table[sample_id]
+        row: dict[str, Any] = {header: "" for header in headers}
+        row["sample_id"] = sample_id
+        row["GT"] = source.get("GT", "")
+        for name in model_names:
+            row[name] = source.get(name, "")
+
+        target_dice = numeric_value(source.get(target_label))
+        row["target_model"] = target_label
+        if target_dice is not None:
+            row["target_dice"] = target_dice
+
+        baseline_values = [(name, numeric_value(source.get(name))) for name in baseline_names]
+        baseline_values = [(name, value) for name, value in baseline_values if value is not None]
+        if baseline_values:
+            best_name, best_dice = max(baseline_values, key=lambda item: item[1])
+            row["best_baseline_model"] = best_name
+            row["best_baseline_dice"] = best_dice
+            row["mean_baseline_dice"] = float(np.mean([value for _, value in baseline_values]))
+            if target_dice is not None:
+                row["target_minus_best_baseline"] = target_dice - best_dice
+
+        ranked_values = [(name, numeric_value(source.get(name))) for name in model_names]
+        ranked_values = [(name, value) for name, value in ranked_values if value is not None]
+        ranked_values.sort(key=lambda item: item[1], reverse=True)
+        for rank, (name, _) in enumerate(ranked_values, start=1):
+            if name == target_label:
+                row["target_rank"] = rank
+                break
+        rows.append(row)
+
+    rows.sort(
+        key=lambda row: (
+            numeric_value(row.get("target_minus_best_baseline")) is not None,
+            numeric_value(row.get("target_minus_best_baseline")) or -1e9,
+            numeric_value(row.get("target_dice")) or -1e9,
+        ),
+        reverse=True,
+    )
+    return headers, rows
+
+
+def write_dice_csv(path: Path, headers: list[str], rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8-sig") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({header: row.get(header, "") for header in headers})
+
+
+def excel_column_name(index: int) -> str:
+    name = ""
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
+
+
+def xlsx_cell(row_index: int, column_index: int, value: Any) -> str:
+    reference = f"{excel_column_name(column_index)}{row_index}"
+    number = numeric_value(value)
+    if number is not None:
+        return f'<c r="{reference}"><v>{number:.6f}</v></c>'
+    if value in {None, ""}:
+        return f'<c r="{reference}"/>'
+    text = xml_escape(str(value))
+    return f'<c r="{reference}" t="inlineStr"><is><t>{text}</t></is></c>'
+
+
+def write_dice_xlsx(path: Path, headers: list[str], rows: list[dict[str, Any]]) -> None:
+    table = [headers] + [[row.get(header, "") for header in headers] for row in rows]
+    row_xml = []
+    for row_index, values in enumerate(table, start=1):
+        cells = "".join(xlsx_cell(row_index, column_index, value) for column_index, value in enumerate(values, start=1))
+        row_xml.append(f'<row r="{row_index}">{cells}</row>')
+    last_cell = f"{excel_column_name(len(headers))}{len(table)}"
+    sheet_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f'<dimension ref="A1:{last_cell}"/>'
+        '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
+        'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+        '<sheetData>'
+        + "".join(row_xml)
+        + '</sheetData></worksheet>'
+    )
+    files = {
+        "[Content_Types].xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>',
+        "_rels/.rels": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
+        "xl/workbook.xml": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="dice_per_slice" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        "xl/_rels/workbook.xml.rels": '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+        "xl/worksheets/sheet1.xml": sheet_xml,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as workbook:
+        for name, content in files.items():
+            workbook.writestr(name, content)
+
+
+def write_dice_reports(
+    output_root: Path,
+    dice_table: dict[str, dict[str, Any]],
+    model_names: list[str],
+    target_label: str,
+) -> tuple[Path, Path]:
+    headers, rows = build_dice_rows(dice_table, model_names, target_label)
+    csv_path = output_root / "dice_per_slice.csv"
+    xlsx_path = output_root / "dice_per_slice.xlsx"
+    write_dice_csv(csv_path, headers, rows)
+    write_dice_xlsx(xlsx_path, headers, rows)
+    return csv_path, xlsx_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -390,6 +585,17 @@ def main() -> None:
     base_images = load_base_images(cfg)
     base_masks = load_base_masks(cfg)
     selected = set(args.only or [])
+    selected_model_names = []
+    for model_cfg in cfg.get("models", []):
+        if model_cfg.get("enabled", True) is False:
+            continue
+        name = str(model_cfg.get("name", "model"))
+        if selected and name not in selected:
+            continue
+        selected_model_names.append(name)
+    dice_table: dict[str, dict[str, Any]] = {
+        sample_id: {"sample_id": sample_id, "GT": 1.0} for sample_id in base_masks
+    }
     written: list[dict[str, str]] = write_gt_overlays(output_root, base_images, base_masks, alpha)
 
     for model_cfg in cfg.get("models", []):
@@ -400,18 +606,25 @@ def main() -> None:
             continue
         mode = str(model_cfg.get("mode", "kpta25d")).lower()
         if mode in {"kpta", "kpta25d", "spta", "spta_net"}:
-            run_kpta25d_model(model_cfg, output_root, alpha, written)
+            run_kpta25d_model(model_cfg, output_root, alpha, written, base_masks, dice_table)
         elif mode in {"contrast2d", "contrast", "2d"}:
-            run_contrast2d_model(model_cfg, output_root, alpha, written)
+            run_contrast2d_model(model_cfg, output_root, alpha, written, base_masks, dice_table)
         elif mode in {"contrast3d", "3d", "hcrt"}:
-            run_contrast3d_model(model_cfg, output_root, base_images, alpha, written)
+            run_contrast3d_model(model_cfg, output_root, base_images, alpha, written, base_masks, dice_table)
         elif mode in {"mask_dir", "predictions", "existing"}:
-            run_mask_dir_model(model_cfg, output_root, base_images, alpha, written)
+            run_mask_dir_model(model_cfg, output_root, base_images, alpha, written, base_masks, dice_table)
         else:
             raise ValueError(f"Unknown model mode for {name}: {mode}")
 
     write_manifest(output_root / "manifest.csv", written)
+    csv_path, xlsx_path = write_dice_reports(
+        output_root,
+        dice_table,
+        selected_model_names,
+        target_label=str(cfg.get("target_model", "SPTA-Net(kpta)")),
+    )
     print(f"Saved {len(written)} overlays to {output_root}")
+    print(f"Saved Dice reports to {csv_path} and {xlsx_path}")
 
 
 if __name__ == "__main__":
