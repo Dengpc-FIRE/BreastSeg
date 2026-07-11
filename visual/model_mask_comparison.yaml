@@ -105,6 +105,7 @@ models:
     config: ContrastModel/HCRT-main/configs/breastdm_17ch.yaml
     checkpoint: ContrastModel/HCRT-main/checkpoints/best_model.pth
     mask_dir: ContrastModel/HCRT-main/test_results/predictions
+    skip_missing: true
     threshold: 0.5
 
   - name: SPTA-Net(kpta)

@@ -232,6 +232,9 @@ def run_mask_dir_model(
     label = str(model_cfg["name"])
     mask_dir = Path(model_cfg["mask_dir"])
     if not mask_dir.is_dir():
+        if bool(model_cfg.get("skip_missing", True)):
+            print(f"[warning] skip {label}: mask directory not found: {mask_dir}")
+            return
         raise FileNotFoundError(f"Mask directory not found for {label}: {mask_dir}")
     threshold = float(model_cfg.get("threshold", 0.5))
     if not base_images:
