@@ -247,6 +247,7 @@ def save_attention_group(output_root: Path, stem: str, base: np.ndarray, maps: n
     display_maps = np.stack([entry["display_map"] for entry in entries], axis=0)
     vmin = float(args.slice_vmin)
     vmax = resolve_vmax(display_maps, args.slice_vmax, args.slice_vmax_percentile)
+    vmax *= max(float(args.slice_vmax_scale), 1e-6)
     if vmax <= vmin:
         vmax = vmin + 1e-6
 
@@ -287,6 +288,12 @@ def main():
         help="Optional percentile used as slice_vmax when --slice_vmax is not set. Lower values make hotspots redder.",
     )
     parser.add_argument(
+        "--slice_vmax_scale",
+        type=float,
+        default=1.2,
+        help="Multiplier applied to slice_vmax after percentile/max resolution. Larger values make CSAM hotspots less red. Default: 1.2.",
+    )
+    parser.add_argument(
         "--slice_overlay_alpha",
         type=float,
         default=0.45,
@@ -295,14 +302,14 @@ def main():
     parser.add_argument(
         "--slice_colormap_gamma",
         type=float,
-        default=0.55,
-        help="Nonlinear boost for mid/high attention colors. Lower values make yellow regions redder. Default: 0.55.",
+        default=0.8,
+        help="Nonlinear boost for mid/high attention colors. Lower values make yellow regions redder; values closer to 1 are milder. Default: 0.8.",
     )
     parser.add_argument(
         "--slice_boost_start",
         type=float,
-        default=0.25,
-        help="Normalized attention value where red-boost starts. Lower values affect more area. Default: 0.25.",
+        default=0.4,
+        help="Normalized attention value where red-boost starts. Lower values affect more area; higher values keep weak/mid attention bluer. Default: 0.4.",
     )
     parser.add_argument(
         "--slice_display_floor_percentile",
